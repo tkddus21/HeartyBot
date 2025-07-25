@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "830881048904",
+    "project_id": "ddobaki-42b0e",
+    "storage_bucket": "ddobaki-42b0e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:830881048904:android:533319bede0d11e0ed2b7d",
+        "android_client_info": {
+          "package_name": "com.example.ddobaki_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyArH_FZdylpYrdQYEa7E1tYatpwkRiwhKY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
