@@ -12,7 +12,12 @@
           "package_name": "com.example.ddobaki_app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "830881048904-uvbkujpiu6bffnt489anrhsj1ac2cth5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyArH_FZdylpYrdQYEa7E1tYatpwkRiwhKY"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "830881048904-uvbkujpiu6bffnt489anrhsj1ac2cth5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
