@@ -17,7 +17,12 @@ dependencies:
   share_plus: ^7.2.1
   cupertino_icons: ^1.0.8
   table_calendar: ^3.0.9
-
+  js: ^0.6.7
+  # 음성 녹음 기능에 필요한 패키지지
+  flutter_sound: ^9.2.13
+  permission_handler: ^11.0.1
+  http: ^0.13.6
+  path_provider: ^2.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter

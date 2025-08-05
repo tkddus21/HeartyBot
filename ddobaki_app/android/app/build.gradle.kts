@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         applicationId = "com.example.ddobaki_app"
-        minSdk = 21 // ✅ Firebase 최소 요구
+        minSdk = 24 // ✅ Firebase 최소 요구 21 -> 24로 변경 flutter_sound 라이브러리는 최소 24이상 요함
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -42,4 +42,3 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-auth")
 }
-apply plugin: 'com.google.gms.google-services'
