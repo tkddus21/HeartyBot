@@ -34,3 +34,9 @@ flutter:
 
   assets:
     - assets/logo.jpg
+
+  fonts:
+    - family: NanumGothic
+      fonts:
+        - asset: assets/fonts/NanumGothic.ttf
+#flutter pub get
