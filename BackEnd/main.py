@@ -1,7 +1,15 @@
 from fastapi import FastAPI
+from api import chat, emotion, tts
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = FastAPI()
 
+app.include_router(chat.router)
+app.include_router(emotion.router)
+app.include_router(tts.router)
+
 @app.get("/")
-def read_root():
-    return {"message": "공모전용 FastAPI입니다!"}
+def root():
+    return {"message": "Hello from FastAPI chatbot!"}
