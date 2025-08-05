@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert'; // JSON 응답 처리
 
 class DiaryScreen extends StatefulWidget {
   @override
@@ -10,12 +16,14 @@ class _DiaryScreenState extends State<DiaryScreen> {
   String _emotionResult = '😊 안정적인 상태입니다.';
   bool _isRecording = false;
 
-  void _toggleRecording() {
-    setState(() {
-      _isRecording = !_isRecording;
-    });
-    // TODO: speech_to_text 연동 (추후)
+  Future<void> _toggleRecording() async {
+    if (_isRecording) {
+      await _stopRecordingAndSend();
+    } else {
+      await _startRecording();
+    }
   }
+
 
   void _analyzeEmotion() {
     String text = _diaryController.text;
@@ -122,5 +130,62 @@ class _DiaryScreenState extends State<DiaryScreen> {
       ),
     );
   }
+
+  final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
+  String? _audioPath;
+
+  Future<void> _startRecording() async {
+    await Permission.microphone.request();
+    if (await Permission.microphone.isGranted) {
+      final dir = await getTemporaryDirectory();
+      _audioPath = '${dir.path}/temp.wav';
+
+      await _recorder.openRecorder();
+      await _recorder.startRecorder(
+        toFile: _audioPath,
+        codec: Codec.pcm16WAV,
+      );
+
+      setState(() {
+        _isRecording = true;
+      });
+    }
+  }
+
+  Future<void> _stopRecordingAndSend() async {
+    await _recorder.stopRecorder();
+    await _recorder.closeRecorder();
+
+    setState(() {
+      _isRecording = false;
+    });
+
+    if (_audioPath != null) {
+      await _uploadAudio(File(_audioPath!));
+    }
+  }
+
+  Future<void> _uploadAudio(File audioFile) async {
+    final uri = Uri.parse('http://10.0.2.2:8000/transcribe/'); // PC IP 주소로 변경
+    final request = http.MultipartRequest('POST', uri)
+      ..files.add(await http.MultipartFile.fromPath('file', audioFile.path));
+
+    final response = await request.send();
+
+    if (response.statusCode == 200) {
+      final respStr = await response.stream.bytesToString();
+      final data = jsonDecode(respStr);
+      setState(() {
+        final existingText = _diaryController.text;
+        final newText = data['text'];
+        _diaryController.text = existingText.isEmpty
+            ? newText
+            : '$existingText\n$newText';
+      });
+    } else {
+      print('❌ 서버 오류: ${response.statusCode}');
+    }
+  }
+
 }
 
