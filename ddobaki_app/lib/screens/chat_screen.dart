@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ChatScreen extends StatefulWidget {
   @override
@@ -7,57 +10,99 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  List<Map<String, String>> _messages = []; // {'role': 'user' or 'bot', 'text': '...'}
+  bool _isLoading = false;
 
-  void _sendMessage() {
+  // 🔧 FastAPI 서버로 챗봇 응답 요청하는 함수
+  Future<String> _fetchBotResponse(String userInput) async {
+    final url = Uri.parse('http://192.168.219.106:8000/chat'); // 서버 주소 바꿔도 됨
+    try {
+      final res = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "user_input": userInput,
+          "medicine_time": false
+        }),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        return data['response'] ?? "서버 응답이 없습니다.";
+      } else {
+        return "서버 오류: ${res.statusCode}";
+      }
+    } catch (e) {
+      return "네트워크 오류: $e";
+    }
+  }
+
+  // 🔧 메시지 전송 + 챗봇 응답 저장
+  void _sendMessage() async {
     String userInput = _controller.text.trim();
     if (userInput.isEmpty) return;
 
     setState(() {
-      _messages.add({'role': 'user', 'text': userInput});
-      _messages.add({'role': 'bot', 'text': _mockBotResponse(userInput)});
+      _isLoading = true;
       _controller.clear();
     });
-  }
 
-  String _mockBotResponse(String input) {
-    // 간단한 감정 반응 시뮬레이션
-    if (input.contains("우울")) {
-      return "요즘 많이 힘드셨군요. 제가 항상 곁에 있어요. 보호자에게 상태를 알릴까요?";
-    } else if (input.contains("행복")) {
-      return "행복한 하루를 보내고 계시다니 정말 기뻐요!";
-    }
-    return "말씀 감사합니다. 더 이야기해볼까요?";
+    // 사용자 메시지 Firestore 저장
+    await FirebaseFirestore.instance.collection('chats').add({
+      'message': userInput,
+      'userid': 'testUser', // 로그인 연동 전까지는 임시
+      'createdAt': Timestamp.now(),
+    });
+
+    // 챗봇 응답 요청 및 저장
+    String botReply = await _fetchBotResponse(userInput);
+    await FirebaseFirestore.instance.collection('chats').add({
+      'message': botReply,
+      'userid': 'bot',
+      'createdAt': Timestamp.now(),
+    });
+
+    setState(() {
+      _isLoading = false;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("AI 챗봇"),
+        title: Text("AI 채팅"),
       ),
       body: Column(
         children: [
-
-          // 메시지 목록
+          // 🔄 Firestore에서 실시간 메시지 불러오기
           Expanded(
-            child: ListView.builder(
-              padding: EdgeInsets.all(12),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                final isUser = message['role'] == 'user';
-                return Align(
-                  alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: EdgeInsets.symmetric(vertical: 4),
-                    padding: EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isUser ? Colors.green[100] : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(message['text'] ?? ''),
-                  ),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('chats')
+                  .orderBy('createdAt')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData)
+                  return Center(child: CircularProgressIndicator());
+
+                final docs = snapshot.data!.docs;
+
+                return ListView(
+                  children: docs.map((doc) {
+                    final isUser = doc['userid'] == 'testUser';
+                    return Align(
+                      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        padding: EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isUser ? Colors.green[100] : Colors.grey[200],
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(doc['message'] ?? ''),
+                      ),
+                    );
+                  }).toList(),
                 );
               },
             ),
@@ -65,41 +110,28 @@ class _ChatScreenState extends State<ChatScreen> {
 
           Divider(),
 
-          // 감정 분석 결과 예시 (간단히 노출)
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            alignment: Alignment.centerLeft,
-            child: Row(
-              children: [
-                Icon(Icons.insights, color: Colors.purple),
-                SizedBox(width: 8),
-                Text("감정 상태: 😊 안정", style: TextStyle(fontSize: 14)),
-              ],
+          if (_isLoading)
+            Padding(
+              padding: EdgeInsets.all(8),
+              child: CircularProgressIndicator(),
             ),
-          ),
 
-          // 입력창 + 전송
+          // 🔽 입력창
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
             child: Row(
               children: [
-                IconButton(
-                  icon: Icon(Icons.mic),
-                  onPressed: () {
-                    // 음성 입력 기능 연결 예정
-                  },
-                ),
                 Expanded(
                   child: TextField(
                     controller: _controller,
                     decoration: InputDecoration(
-                      hintText: "말을 입력하거나 음성으로 말해주세요",
+                      hintText: "메시지를 입력하세요",
                     ),
                   ),
                 ),
                 IconButton(
                   icon: Icon(Icons.send),
-                  onPressed: _sendMessage,
+                  onPressed: _isLoading ? null : _sendMessage,
                 ),
               ],
             ),
@@ -111,5 +143,3 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 }
-
-
