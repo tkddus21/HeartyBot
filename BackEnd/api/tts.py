@@ -6,10 +6,13 @@ from datetime import datetime
 import os
 
 router = APIRouter()
-
-OPENAI_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_KEY)
 GPT_MODEL = "gpt-4o-mini"
+
+def get_openai_client():
+    openai_key = os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        raise RuntimeError("환경변수 OPENAI_API_KEY가 설정되어 있지 않습니다.")
+    return OpenAI(api_key=openai_key)
 
 def generate_prompt(user_input: str, medicine_time: bool = False) -> str:
     today = datetime.now().strftime("%Y년 %m월 %d일")
@@ -31,6 +34,7 @@ def gpt_reply(sys_prompt: str, user_input: str) -> str:
     ]
 
     try:
+        client = get_openai_client()
         response = client.chat.completions.create(
             model=GPT_MODEL,
             messages=messages,
