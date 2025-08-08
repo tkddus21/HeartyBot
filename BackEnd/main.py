@@ -1,34 +1,31 @@
-from fastapi import FastAPI, File, UploadFile
-from api import chat, emotion, tts
+from fastapi import FastAPI
 from dotenv import load_dotenv
 
-import whisper
+from api import chat, emotion, tts, stt
 
-import tempfile
+import whisper
+from contextlib import asynccontextmanager
+
 load_dotenv()
 
-app = FastAPI()
+# 앱 라이프사이클에 모델 로딩을 묶기 (앱 시작 시 1회 로딩)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.whisper_model = whisper.load_model("base")  # tiny/base/small/medium/large
+    try:
+        yield
+    finally:
+        # 필요 시 정리 작업
+        app.state.whisper_model = None
 
+app = FastAPI(lifespan=lifespan)
+
+# 다른 라우터들
 app.include_router(chat.router)
 app.include_router(emotion.router)
 app.include_router(tts.router)
-
-
-model = whisper.load_model("base")  # tiny, base, small, medium, large 중 선택
-
+app.include_router(stt.router)  # 👈 STT 라우터 추가
 
 @app.get("/")
-@app.post("/transcribe/")
-async def transcribe_audio(file: UploadFile = File(...)):
-    # 업로드된 파일을 임시 파일로 저장
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-        contents = await file.read()
-        tmp.write(contents)
-        tmp_path = tmp.name
-
-    # Whisper 모델로 변환
-    result = model.transcribe(tmp_path)
-    return {"text": result["text"]}
-
 def root():
     return {"message": "Hello from FastAPI chatbot!"}
