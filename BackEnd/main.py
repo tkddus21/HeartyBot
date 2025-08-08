@@ -5,7 +5,8 @@ from dotenv import load_dotenv
 import whisper
 
 import tempfile
-load_dotenv()
+load_dotenv(dotenv_path=".env.dev")
+
 
 app = FastAPI()
 
