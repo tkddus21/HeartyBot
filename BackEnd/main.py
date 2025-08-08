@@ -14,8 +14,11 @@ app.include_router(chat.router)
 app.include_router(emotion.router)
 app.include_router(tts.router)
 
-@app.get("/")
 
+model = whisper.load_model("base")  # tiny, base, small, medium, large 중 선택
+
+
+@app.get("/")
 @app.post("/transcribe/")
 async def transcribe_audio(file: UploadFile = File(...)):
     # 업로드된 파일을 임시 파일로 저장
