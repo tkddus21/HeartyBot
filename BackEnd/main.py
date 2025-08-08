@@ -6,7 +6,9 @@ from api import chat, emotion, tts, stt
 import whisper
 from contextlib import asynccontextmanager
 
-load_dotenv()
+import tempfile
+load_dotenv(dotenv_path=".env.dev")
+
 
 # 앱 라이프사이클에 모델 로딩을 묶기 (앱 시작 시 1회 로딩)
 @asynccontextmanager
