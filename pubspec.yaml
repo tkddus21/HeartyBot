@@ -38,7 +38,7 @@ flutter:
   assets:
     - assets/logo.jpg
 
-   fonts:
+  fonts:
     - family: NanumGothic
       fonts:
         - asset: assets/fonts/NanumGothic.ttf
