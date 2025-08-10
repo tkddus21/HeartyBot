@@ -14,7 +14,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   // 🔧 FastAPI 서버로 챗봇 응답 요청하는 함수
   Future<String> _fetchBotResponse(String userInput) async {
-    final url = Uri.parse('http://192.168.219.106:8000/chat'); // 서버 주소 바꿔도 됨
+    final url = Uri.parse('http://127.0.0.1:8000/chat'); // 서버 주소 바꿔도 됨
     try {
       final res = await http.post(
         url,

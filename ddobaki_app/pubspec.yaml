@@ -18,11 +18,13 @@ dependencies:
   cupertino_icons: ^1.0.8
   table_calendar: ^3.0.9
   js: ^0.6.7
+  record: ^6.0.0
+  dio: ^5.5.0
   # 음성 녹음 기능에 필요한 패키지지
   flutter_sound: ^9.2.13
   permission_handler: ^11.0.1
   http: ^0.13.6
-  path_provider: ^2.1.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
