@@ -10,12 +10,11 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
 
-  // 🔹 FastAPI 서버와 통신
+  // 🔧 FastAPI 서버로 챗봇 응답 요청하는 함수
   Future<String> _fetchBotResponse(String userInput) async {
-    final url = Uri.parse('http://192.168.219.106:8000/chat'); // 필요시 IP 수정
+    final url = Uri.parse('http://127.0.0.1:8000/chat'); // 서버 주소 바꿔도 됨
     try {
       final res = await http.post(
         url,
@@ -25,6 +24,7 @@ class _ChatScreenState extends State<ChatScreen> {
           "medicine_time": false
         }),
       );
+
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         return data['response'] ?? "서버 응답이 없습니다.";
@@ -36,7 +36,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 🔹 메시지 전송 처리
+  // 🔧 메시지 전송 + 챗봇 응답 저장
   void _sendMessage() async {
     String userInput = _controller.text.trim();
     if (userInput.isEmpty) return;
@@ -46,17 +46,15 @@ class _ChatScreenState extends State<ChatScreen> {
       _controller.clear();
     });
 
-    // 사용자 메시지 저장
+    // 사용자 메시지 Firestore 저장
     await FirebaseFirestore.instance.collection('chats').add({
       'message': userInput,
-      'userid': 'testUser', // 추후 로그인 연동
+      'userid': 'testUser', // 로그인 연동 전까지는 임시
       'createdAt': Timestamp.now(),
     });
 
-    // 챗봇 응답 받아오기
+    // 챗봇 응답 요청 및 저장
     String botReply = await _fetchBotResponse(userInput);
-
-    // 챗봇 응답 저장
     await FirebaseFirestore.instance.collection('chats').add({
       'message': botReply,
       'userid': 'bot',
@@ -66,26 +64,17 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() {
       _isLoading = false;
     });
-
-    // 스크롤 맨 아래로 이동
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: Duration(milliseconds: 300),
-          curve: Curves.easeOut,
-        );
-      }
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("AI 채팅")),
+      appBar: AppBar(
+        title: Text("AI 채팅"),
+      ),
       body: Column(
         children: [
-          // 🔄 Firestore 실시간 메시지
+          // 🔄 Firestore에서 실시간 메시지 불러오기
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -93,24 +82,18 @@ class _ChatScreenState extends State<ChatScreen> {
                   .orderBy('createdAt')
                   .snapshots(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData) {
+                if (!snapshot.hasData)
                   return Center(child: CircularProgressIndicator());
-                }
 
                 final docs = snapshot.data!.docs;
 
-                return ListView.builder(
-                  controller: _scrollController,
-                  padding: EdgeInsets.all(12),
-                  itemCount: docs.length,
-                  itemBuilder: (context, index) {
-                    final doc = docs[index];
+                return ListView(
+                  children: docs.map((doc) {
                     final isUser = doc['userid'] == 'testUser';
                     return Align(
-                      alignment:
-                      isUser ? Alignment.centerRight : Alignment.centerLeft,
+                      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
-                        margin: EdgeInsets.symmetric(vertical: 4),
+                        margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
                         padding: EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: isUser ? Colors.green[100] : Colors.grey[200],
@@ -119,7 +102,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Text(doc['message'] ?? ''),
                       ),
                     );
-                  },
+                  }).toList(),
                 );
               },
             ),
@@ -133,24 +116,16 @@ class _ChatScreenState extends State<ChatScreen> {
               child: CircularProgressIndicator(),
             ),
 
-          // 🔽 입력창 및 버튼
+          // 🔽 입력창
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 8),
             child: Row(
               children: [
-                IconButton(
-                  icon: Icon(Icons.mic),
-                  onPressed: () {
-                    // 🔜 향후 음성 기능
-                  },
-                ),
                 Expanded(
                   child: TextField(
-                    maxLines: null,
-                    keyboardType: TextInputType.multiline,
                     controller: _controller,
                     decoration: InputDecoration(
-                      hintText: "말을 입력하거나 음성으로 말해주세요",
+                      hintText: "메시지를 입력하세요",
                     ),
                   ),
                 ),
@@ -161,6 +136,7 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             ),
           ),
+
           SizedBox(height: 10),
         ],
       ),
