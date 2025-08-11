@@ -1,0 +1,61 @@
+# --------------------------
+# Flutter/Dart 기본
+# --------------------------
+.dart_tool/
+.packages
+.pub-cache/
+build/
+flutter_*.png
+coverage/
+generated_plugin_registrant.dart
+
+# --------------------------
+# IntelliJ / Android Studio
+# --------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# --------------------------
+# VS Code
+# --------------------------
+.vscode/
+
+# --------------------------
+# macOS / Windows / Linux OS
+# --------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.swp
+*.swo
+
+# --------------------------
+# Android 빌드 산출물
+# --------------------------
+**/android/local.properties
+**/android/.gradle/
+**/android/app/build/
+**/android/gradle/
+**/android/.gradletasknamecache
+**/android/gradle-app-cache
+
+# --------------------------
+# iOS 빌드 산출물
+# --------------------------
+**/ios/Flutter/.last_build_id
+**/ios/Pods/
+**/ios/Runner.xcworkspace/
+**/ios/build/
+**/ios/.symlinks/
+
+# --------------------------
+# Web 빌드 산출물
+# --------------------------
+**/web/wasm/
+
+# --------------------------
+# 기타
+# --------------------------
+*.log
