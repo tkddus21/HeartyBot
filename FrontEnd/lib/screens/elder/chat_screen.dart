@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
@@ -13,6 +15,60 @@ class ChatScreen extends StatefulWidget {
   @override
   _ChatScreenState createState() => _ChatScreenState();
 }
+
+//// 오늘 날짜/문서 레퍼런스 헬퍼 
+String _todayId() => DateFormat('yyyy-MM-dd').format(DateTime.now());
+
+DocumentReference<Map<String, dynamic>> _todayChatDoc() {
+  final uid = FirebaseAuth.instance.currentUser!.uid; //로그인 전제
+  return FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('chats')
+      .doc(_todayId());
+}
+
+//// 메시지 저장 함수 (배열 append)
+Future<void> _appendChatMessage({
+  required String role, // 'user' or 'bot'
+  required String text,
+}) async {
+  final doc = _todayChatDoc();
+  await doc.set({
+    'date': _todayId(),
+    // 최상위에서는 serverTimestamp 사용 가능
+    'updatedAt': FieldValue.serverTimestamp(),
+    // arrayUnion 내부에서는 serverTimestamp 사용 불가 → Timestamp.now()로 대체
+    'messages': FieldValue.arrayUnion([
+      {
+        'role': role,
+        'text': text,
+        'createdAt': Timestamp.now(), // Timestamp.now로 변경
+      }
+    ]),
+  }, SetOptions(merge: true));
+}
+
+
+////오늘 채팅 스트림 (배열 >> List<Map>로 변환)
+Stream<List<Map<String, dynamic>>> _todayChatStream() {
+  return _todayChatDoc().snapshots().map((snap) {
+    if (!snap.exists) return <Map<String, dynamic>>[];
+    final data = snap.data()!;
+    final list = List<Map<String, dynamic>>.from(data['messages'] ?? []);
+    // createdAt 기준 정렬(서버 타임스탬프가 동일해도 안전하게)
+    list.sort((a, b) {
+      final ta = a['createdAt'];
+      final tb = b['createdAt'];
+      if (ta is Timestamp && tb is Timestamp) {
+        return ta.compareTo(tb);
+      }
+      return 0;
+    });
+    return list;
+  });
+}
+
 
 // just_audio가 메모리의 오디오 데이터를 재생하기 위해 필요한 헬퍼 클래스
 class MyCustomSource extends StreamAudioSource {
@@ -172,26 +228,30 @@ class _ChatScreenState extends State<ChatScreen> {
       _controller.clear();
     });
 
-    await FirebaseFirestore.instance.collection('chats').add({
-      'message': userInput,
-      'userid': 'testUser',
-      'createdAt': Timestamp.now(),
-    });
+    try {
+      // 1) 유저 메시지 저장
+      await _appendChatMessage(role: 'user', text: userInput);
 
-    String botReply = await _fetchBotResponse(userInput);
-    await FirebaseFirestore.instance.collection('chats').add({
-      'message': botReply,
-      'userid': 'bot',
-      'createdAt': Timestamp.now(),
-    });
+      // 2) 서버에서 답변 받기
+      final botReply = await _fetchBotResponse(userInput);
 
-    if (playTts) {
-      await _playBotTts(botReply);
+      // 3) 봇 메시지 저장
+      await _appendChatMessage(role: 'bot', text: botReply);
+
+      // 4) (옵션) 봇 음성 재생 -> 앞으로 만들어가야함.
+      if (playTts) {
+        await _playBotTts(botReply);
+      }
+    } catch (e) {
+      debugPrint('채팅 저장/응답 실패: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('채팅 처리 중 오류가 발생했습니다: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    setState(() {
-      _isLoading = false;
-    });
   }
 
   @override
@@ -203,36 +263,35 @@ class _ChatScreenState extends State<ChatScreen> {
       body: Column(
         children: [
           Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('chats')
-                  .orderBy('createdAt')
-                  .snapshots(),
+            child: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: _todayChatStream(),
               builder: (context, snapshot) {
-                if (!snapshot.hasData)
-                  return Center(child: CircularProgressIndicator());
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-                // 🔧 데이터가 업데이트 될 때마다 스크롤을 맨 아래로 이동시킵니다.
-                _scrollToBottom();
+                final messages = snapshot.data!;
+                // 데이터 들어온 뒤 스크롤 맨 아래
+                WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-                final docs = snapshot.data!.docs;
-
-                return ListView.builder( // 🔧 ListView.builder로 변경
-                  controller: _scrollController, // 🔧 스크롤 컨트롤러 연결
-                  itemCount: docs.length,
+                return ListView.builder(
+                  controller: _scrollController,
+                  itemCount: messages.length,
                   itemBuilder: (context, index) {
-                    final doc = docs[index];
-                    final isUser = doc['userid'] == 'testUser';
+                    final m = messages[index];
+                    final isUser = (m['role'] == 'user');
+                    final text = (m['text'] ?? '').toString();
+
                     return Align(
                       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
                       child: Container(
-                        margin: EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                        padding: EdgeInsets.all(12),
+                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
                           color: isUser ? Colors.green[100] : Colors.grey[200],
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(doc['message'] ?? ''),
+                        child: Text(text),
                       ),
                     );
                   },
