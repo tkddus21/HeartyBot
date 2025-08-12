@@ -27,7 +27,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     super.dispose();
   }
 
-  /// 🔹 감정 분석 (UI 표시 X, 저장만)
+  /// 감정 분석 (UI 표시 X, 저장만)
   String _analyzeEmotion(String text) {
     if (text.contains("우울") || text.contains("힘들어")) {
       return '슬픔';
