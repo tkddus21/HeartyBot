@@ -38,34 +38,65 @@ class _DiaryScreenState extends State<DiaryScreen> {
     }
   }
 
-  /// 🔹 일기 저장 (Firestore)
-  void _saveDiary() async {
-    final text = _diaryController.text.trim();
-    if (text.isEmpty) return;
+  /// 일기 저장 (Firestore) 
+ void _saveDiary() async {
+  final text = _diaryController.text.trim();
+  if (text.isEmpty) return;
 
-    final emotion = _analyzeEmotion(text);
+  final emotion = _analyzeEmotion(text);
 
-    try {
-      final userId = FirebaseAuth.instance.currentUser?.uid;
-      if (userId == null) return;
+  try {
+    final user = await _ensureAuth();           // ✅ 로그인 보장
+    final uid = user.uid;
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('diaries')
-          .add({
-        'text': text,
-        'emotion': emotion,
-        'timestamp': FieldValue.serverTimestamp(),
-      });
+    final userDoc = FirebaseFirestore.instance.collection('users').doc(uid);
+    final diaryRef = userDoc.collection('diaries').doc(); // auto id
 
-      _diaryController.clear();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("일기가 저장되었습니다")),
-      );
-    } catch (e) {
-      print("일기 저장 실패: $e");
+    final batch = FirebaseFirestore.instance.batch();
+
+    batch.set(diaryRef, {
+      'text': text,
+      'emotion': emotion,
+      'createdAt': FieldValue.serverTimestamp(),  // ✅ createdAt로 통일
+      'updatedAt': FieldValue.serverTimestamp(),
+      // 'audioUrl': '...'(나중에 Storage 붙이면 여기)
+      // 'tags': [],
+    });
+
+    // 선택: 유저 요약 필드 업데이트
+    batch.set(
+      userDoc,
+      {
+        'lastDiaryAt': FieldValue.serverTimestamp(),
+        'diaryCount': FieldValue.increment(1),
+      },
+      SetOptions(merge: true),
+    );
+
+    await batch.commit();
+
+    _diaryController.clear();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("일기가 저장되었습니다")),
+    );
+  } catch (e) {
+    debugPrint("일기 저장 실패: $e");
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("저장 실패: $e")),
+    );
+  }
+}
+
+  Future<User> _ensureAuth() async {
+    final auth = FirebaseAuth.instance;
+    var user = auth.currentUser;
+    if (user == null) {
+      final cred = await auth.signInAnonymously();
+      user = cred.user!;
     }
+    return user!;
   }
 
   /// 🔹 녹음 시작/중지 토글
