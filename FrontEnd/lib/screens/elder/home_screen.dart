@@ -24,6 +24,21 @@ class _HomeScreenState extends State<HomeScreen> {
     _selectedDay = _focusedDay;
   }
 
+  // 🔧 현재 시간에 맞는 인사말을 반환하는 함수
+  String _getGreeting() {
+    final int hour = DateTime.now().hour;
+
+    if (hour >= 7 && hour < 12) {
+      return "활기찬 오전, 기분 좋게 보내세요.";
+    } else if (hour >= 12 && hour < 18) {
+      return "점심은 든든히 드셨나요?";
+    } else if (hour >= 18 && hour < 22) {
+      return "편안한 저녁 시간 보내세요.";
+    } else {
+      return "포근한 밤, 좋은 꿈 꾸세요.";
+    }
+  }
+
   void _onBottomNavTapped(int index) {
     setState(() => _selectedIndex = index);
   }
@@ -98,32 +113,54 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               CircleAvatar(radius: 30, backgroundColor: Colors.grey[300]),
               SizedBox(width: 12),
-              Text("나른한 오후, 졸지말고 아자아자!", style: TextStyle(fontSize: 16)),
+              // 🔧 기존 Text 위젯을 함수 호출로 변경
+              Text(_getGreeting(), style: TextStyle(fontSize: 16)),
             ],
           ),
           SizedBox(height: 20),
-          TableCalendar(
-            firstDay: DateTime.utc(2020, 1, 1),
-            lastDay: DateTime.utc(2030, 12, 31),
-            focusedDay: _focusedDay,
-            calendarFormat: _calendarFormat,
-            onFormatChanged: (format) {
-              setState(() {
-                _calendarFormat = CalendarFormat.week;
-              });
+          // 🔧 GestureDetector로 달력을 감싸 스와이프 방향을 직접 제어합니다.
+          GestureDetector(
+            onVerticalDragEnd: (details) {
+              // 아래로 스와이프하면 (속도가 양수)
+              if (details.primaryVelocity! > 0) {
+                setState(() {
+                  _calendarFormat = CalendarFormat.month; // 월간 달력으로 변경
+                });
+              }
+              // 위로 스와이프하면 (속도가 음수)
+              else if (details.primaryVelocity! < 0) {
+                setState(() {
+                  _calendarFormat = CalendarFormat.week; // 주간 달력으로 변경
+                });
+              }
             },
-            selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-            onDaySelected: (selectedDay, focusedDay) {
-              setState(() {
-                _selectedDay = selectedDay;
-                _focusedDay = focusedDay;
-              });
-            },
-            calendarStyle: CalendarStyle(
-              selectedDecoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
-              todayDecoration: BoxDecoration(color: Colors.deepPurple.withOpacity(0.5), shape: BoxShape.circle),
+            child: TableCalendar(
+              firstDay: DateTime.utc(2020, 1, 1),
+              lastDay: DateTime.utc(2030, 12, 31),
+              focusedDay: _focusedDay,
+              calendarFormat: _calendarFormat,
+              // 🔧 달력 자체의 스와이프 기능은 끕니다.
+              availableGestures: AvailableGestures.none,
+              onFormatChanged: (format) {
+                if (_calendarFormat != format) {
+                  setState(() {
+                    _calendarFormat = format;
+                  });
+                }
+              },
+              selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
+              onDaySelected: (selectedDay, focusedDay) {
+                setState(() {
+                  _selectedDay = selectedDay;
+                  _focusedDay = focusedDay;
+                });
+              },
+              calendarStyle: CalendarStyle(
+                selectedDecoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
+                todayDecoration: BoxDecoration(color: Colors.deepPurple.withOpacity(0.5), shape: BoxShape.circle),
+              ),
+              headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
             ),
-            headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
           ),
           SizedBox(height: 20),
           _buildMedicationStatusCard(),
