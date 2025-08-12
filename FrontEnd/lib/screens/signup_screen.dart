@@ -14,17 +14,68 @@ class _SignupScreenState extends State<SignupScreen> {
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _extraInfoController = TextEditingController();
+
+  // 추가: 이름 / 생년월일
+  final _nameController = TextEditingController();
+  final _birthController = TextEditingController(); // 표시용
+  DateTime? _birthDate;
+
   String _userType = '노인';
   bool _isLoading = false;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    _phoneController.dispose();
+    _addressController.dispose();
+    _extraInfoController.dispose();
+    _nameController.dispose();
+    _birthController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickBirthDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(now.year - 70, 1, 1),
+      firstDate: DateTime(1900, 1, 1),
+      lastDate: now,
+    );
+    if (picked != null) {
+      setState(() {
+        _birthDate = picked;
+        _birthController.text =
+        '${picked.year.toString().padLeft(4, '0')}-'
+            '${picked.month.toString().padLeft(2, '0')}-'
+            '${picked.day.toString().padLeft(2, '0')}';
+      });
+    }
+  }
 
   void _signup() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final confirmPassword = _confirmPasswordController.text.trim();
+    final name = _nameController.text.trim();
 
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이름을 입력해주세요.')),
+      );
+      return;
+    }
+    if (_birthDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('생년월일을 선택해주세요.')),
+      );
+      return;
+    }
     if (password != confirmPassword) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
+        const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
       );
       return;
     }
@@ -32,22 +83,48 @@ class _SignupScreenState extends State<SignupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      UserCredential userCredential = await FirebaseAuth.instance
+      final cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: password);
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
+      final uid = cred.user!.uid;
+
+      // 생년월일 문자열(표시용)
+      final bd = _birthDate!;
+      final bdStr =
+          '${bd.year.toString().padLeft(4, '0')}-'
+          '${bd.month.toString().padLeft(2, '0')}-'
+          '${bd.day.toString().padLeft(2, '0')}';
+
+      final data = {
         'email': email,
         'userType': _userType,
+        'name': name,
+        'birthDate': bd,             // Timestamp로 저장됨
+        'birthDateString': bdStr,    // 표시용
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
-        'extra': _extraInfoController.text.trim(),
-        'name': email.split('@')[0],
-      });
+        'createdAt': FieldValue.serverTimestamp(),
+      };
 
-      Navigator.pushReplacementNamed(context, '/');
+      if (_userType == '보호자') {
+        data['elderEmail'] = _extraInfoController.text.trim();
+      } else if (_userType == '복지사') {
+        data['orgName'] = _extraInfoController.text.trim();
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(uid).set(data);
+
+      // ✅ 가입 직후 자동 로그인 상태 해제
+      await FirebaseAuth.instance.signOut();
+
+      // ✅ 로그인 화면으로 이동하면서 이메일 프리필 전달
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login',
+            (route) => false,
+        arguments: {'prefillEmail': email},
+      );
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message ?? '회원가입 실패')),
@@ -61,7 +138,7 @@ class _SignupScreenState extends State<SignupScreen> {
     if (_userType == '보호자') {
       return TextField(
         controller: _extraInfoController,
-        decoration: InputDecoration(
+        decoration: const InputDecoration(
           labelText: '연결할 노인 이메일',
           border: OutlineInputBorder(),
         ),
@@ -69,20 +146,20 @@ class _SignupScreenState extends State<SignupScreen> {
     } else if (_userType == '복지사') {
       return TextField(
         controller: _extraInfoController,
-        decoration: InputDecoration(
+        decoration: const InputDecoration(
           labelText: '소속 기관명',
           border: OutlineInputBorder(),
         ),
       );
     } else {
-      return SizedBox.shrink();
+      return const SizedBox.shrink();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('회원가입')),
+      appBar: AppBar(title: const Text('회원가입')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -90,73 +167,95 @@ class _SignupScreenState extends State<SignupScreen> {
           children: [
             DropdownButtonFormField<String>(
               value: _userType,
-              items: ['노인', '보호자', '복지사'].map((type) {
-                return DropdownMenuItem(
-                  value: type,
-                  child: Text(type),
-                );
-              }).toList(),
-              onChanged: (value) {
-                setState(() {
-                  _userType = value!;
-                });
-              },
-              decoration: InputDecoration(
+              items: ['노인', '보호자', '복지사']
+                  .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                  .toList(),
+              onChanged: (v) => setState(() => _userType = v!),
+              decoration: const InputDecoration(
                 labelText: '회원 유형 선택',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             _buildExtraField(),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
+
+            // 이름
+            TextField(
+              controller: _nameController,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '이름',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // 생년월일
+            TextField(
+              controller: _birthController,
+              readOnly: true,
+              onTap: _pickBirthDate,
+              decoration: const InputDecoration(
+                labelText: '생년월일 (YYYY-MM-DD)',
+                hintText: '생년월일을 선택해주세요',
+                border: OutlineInputBorder(),
+                suffixIcon: Icon(Icons.calendar_today),
+              ),
+            ),
+            const SizedBox(height: 12),
+
             TextField(
               controller: _emailController,
-              decoration: InputDecoration(
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
                 labelText: '이메일',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: '비밀번호',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextField(
               controller: _confirmPasswordController,
               obscureText: true,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: '비밀번호 확인',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextField(
               controller: _phoneController,
-              decoration: InputDecoration(
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
                 labelText: '전화번호',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 12),
+            const SizedBox(height: 12),
             TextField(
               controller: _addressController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 labelText: '집 주소',
                 border: OutlineInputBorder(),
               ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
+
             ElevatedButton(
               onPressed: _isLoading ? null : _signup,
+              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
               child: _isLoading
-                  ? CircularProgressIndicator(color: Colors.white)
-                  : Text('회원가입'),
-              style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 48)),
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('회원가입'),
             ),
           ],
         ),
