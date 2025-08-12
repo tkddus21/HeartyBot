@@ -20,6 +20,7 @@ dependencies:
   js: ^0.6.7
   record: ^6.0.0
   dio: ^5.5.0
+  google_sign_in: ^6.2.1
 
   # 음성 녹음 기능에 필요한 패키지지
   flutter_sound: ^9.2.13
@@ -38,6 +39,7 @@ flutter:
 
   assets:
     - assets/logo.jpg
+    - assets/google.logo.png
 
   fonts:
     - family: NanumGothic
