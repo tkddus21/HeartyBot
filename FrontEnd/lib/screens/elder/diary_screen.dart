@@ -64,14 +64,14 @@ class _DiaryScreenState extends State<DiaryScreen> {
     });
 
     // 선택: 유저 요약 필드 업데이트
-    batch.set(
+    batch.update(
       userDoc,
       {
         'lastDiaryAt': FieldValue.serverTimestamp(),
         'diaryCount': FieldValue.increment(1),
       },
-      SetOptions(merge: true),
     );
+
 
     await batch.commit();
 
