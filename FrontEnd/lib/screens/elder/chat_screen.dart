@@ -7,14 +7,14 @@ import 'dart:io';
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:just_audio/just_audio.dart'; // 🔧 오디오 플레이어 패키지 import
+import 'package:just_audio/just_audio.dart';
 
 class ChatScreen extends StatefulWidget {
   @override
   _ChatScreenState createState() => _ChatScreenState();
 }
 
-// 🔧 just_audio가 메모리의 오디오 데이터를 재생하기 위해 필요한 헬퍼 클래스
+// just_audio가 메모리의 오디오 데이터를 재생하기 위해 필요한 헬퍼 클래스
 class MyCustomSource extends StreamAudioSource {
   final List<int> bytes;
   MyCustomSource(this.bytes);
@@ -34,10 +34,11 @@ class MyCustomSource extends StreamAudioSource {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
+  final ScrollController _scrollController = ScrollController(); // 🔧 스크롤 컨트롤러 생성
   bool _isLoading = false;
 
   late AudioRecorder _audioRecorder;
-  final _audioPlayer = AudioPlayer(); // 🔧 오디오 플레이어 인스턴스 생성
+  final _audioPlayer = AudioPlayer();
   bool _isRecording = false;
 
   @override
@@ -49,25 +50,34 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void dispose() {
     _audioRecorder.dispose();
-    _audioPlayer.dispose(); // 🔧 플레이어 정리
+    _audioPlayer.dispose();
     _controller.dispose();
+    _scrollController.dispose(); // 🔧 스크롤 컨트롤러 정리
     super.dispose();
   }
 
-  // 🔧 챗봇의 텍스트 응답을 음성으로 재생하는 함수
+  // 🔧 스크롤을 맨 아래로 즉시 이동시키는 함수
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(
+          _scrollController.position.maxScrollExtent,
+        );
+      }
+    });
+  }
+
+  // 챗봇의 텍스트 응답을 음성으로 재생하는 함수
   Future<void> _playBotTts(String textToSpeak) async {
-    // '/chat-tts' 엔드포인트는 gTTS를 사용하므로, 챗봇의 응답 텍스트를 그대로 보내면 됩니다.
-    final url = Uri.parse('http://10.0.2.2:8000/chat-tts'); // 💻 에뮬레이터용 주소
+    final url = Uri.parse('http://10.0.2.2:8000/chat-tts');
     try {
       final res = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
-        // STT로 변환된 사용자 질문을 보내는 것이 아니라, 챗봇이 생성한 '응답 텍스트'를 보냅니다.
         body: jsonEncode({"user_input": textToSpeak, "medicine_time": false}),
       );
 
       if (res.statusCode == 200) {
-        // 서버로부터 받은 MP3 파일 데이터를 플레이어에 넣고 재생합니다.
         await _audioPlayer.setAudioSource(MyCustomSource(res.bodyBytes));
         await _audioPlayer.play();
       } else {
@@ -79,7 +89,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<String> _transcribeAudio(String audioPath) async {
-    final url = Uri.parse('http://10.0.2.2:8000/transcribe'); // 💻 에뮬레이터용 주소
+    final url = Uri.parse('http://10.0.2.2:8000/transcribe');
     try {
       var request = http.MultipartRequest('POST', url);
       request.files.add(await http.MultipartFile.fromPath('file', audioPath));
@@ -108,7 +118,6 @@ class _ChatScreenState extends State<ChatScreen> {
         });
         String transcribedText = await _transcribeAudio(audioPath);
         if (transcribedText.isNotEmpty) {
-          // 🔧 음성 입력이었으므로, TTS 재생 옵션을 true로 설정하여 메시지 전송
           _sendMessage(textToSend: transcribedText, playTts: true);
         } else {
           setState(() => _isLoading = false);
@@ -132,7 +141,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
 
   Future<String> _fetchBotResponse(String userInput) async {
-    final url = Uri.parse('http://10.0.2.2:8000/chat'); // 💻 에뮬레이터용 주소
+    final url = Uri.parse('http://10.0.2.2:8000/chat');
     try {
       final res = await http.post(
         url,
@@ -151,7 +160,6 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 🔧 TTS 재생 여부를 결정하는 'playTts' 파라미터 추가
   void _sendMessage({String? textToSend, bool playTts = false}) async {
     String userInput = textToSend ?? _controller.text.trim();
     if (userInput.isEmpty) {
@@ -177,7 +185,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'createdAt': Timestamp.now(),
     });
 
-    // 🔧 playTts가 true일 때만 챗봇 음성 재생 함수 호출
     if (playTts) {
       await _playBotTts(botReply);
     }
@@ -205,10 +212,16 @@ class _ChatScreenState extends State<ChatScreen> {
                 if (!snapshot.hasData)
                   return Center(child: CircularProgressIndicator());
 
+                // 🔧 데이터가 업데이트 될 때마다 스크롤을 맨 아래로 이동시킵니다.
+                _scrollToBottom();
+
                 final docs = snapshot.data!.docs;
 
-                return ListView(
-                  children: docs.map((doc) {
+                return ListView.builder( // 🔧 ListView.builder로 변경
+                  controller: _scrollController, // 🔧 스크롤 컨트롤러 연결
+                  itemCount: docs.length,
+                  itemBuilder: (context, index) {
+                    final doc = docs[index];
                     final isUser = doc['userid'] == 'testUser';
                     return Align(
                       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -222,7 +235,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         child: Text(doc['message'] ?? ''),
                       ),
                     );
-                  }).toList(),
+                  },
                 );
               },
             ),
@@ -237,19 +250,20 @@ class _ChatScreenState extends State<ChatScreen> {
             padding: EdgeInsets.symmetric(horizontal: 8),
             child: Row(
               children: [
+                // 🔧 마이크 버튼을 왼쪽으로 이동
+                IconButton(
+                  icon: Icon(_isRecording ? Icons.stop : Icons.mic),
+                  onPressed: _isLoading ? null : _handleMicButtonPressed,
+                ),
                 Expanded(
                   child: TextField(
                     controller: _controller,
                     decoration: InputDecoration(hintText: "메시지를 입력하세요"),
                   ),
                 ),
-                IconButton(
-                  icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-                  onPressed: _isLoading ? null : _handleMicButtonPressed,
-                ),
+                // 🔧 전송 버튼은 오른쪽에 그대로 둡니다.
                 IconButton(
                   icon: Icon(Icons.send),
-                  // 🔧 텍스트 전송 시에는 TTS 재생 안 함 (playTts: false)
                   onPressed: _isLoading ? null : () => _sendMessage(playTts: false),
                 ),
               ],
