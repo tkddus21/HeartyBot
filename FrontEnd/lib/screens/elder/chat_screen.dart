@@ -16,7 +16,7 @@ class ChatScreen extends StatefulWidget {
   _ChatScreenState createState() => _ChatScreenState();
 }
 
-//// 오늘 날짜/문서 레퍼런스 헬퍼 
+//// 오늘 날짜/문서 레퍼런스 헬퍼
 String _todayId() => DateFormat('yyyy-MM-dd').format(DateTime.now());
 
 DocumentReference<Map<String, dynamic>> _todayChatDoc() {
@@ -36,14 +36,12 @@ Future<void> _appendChatMessage({
   final doc = _todayChatDoc();
   await doc.set({
     'date': _todayId(),
-    // 최상위에서는 serverTimestamp 사용 가능
     'updatedAt': FieldValue.serverTimestamp(),
-    // arrayUnion 내부에서는 serverTimestamp 사용 불가 → Timestamp.now()로 대체
     'messages': FieldValue.arrayUnion([
       {
         'role': role,
         'text': text,
-        'createdAt': Timestamp.now(), // Timestamp.now로 변경
+        'createdAt': Timestamp.now(),
       }
     ]),
   }, SetOptions(merge: true));
@@ -56,7 +54,6 @@ Stream<List<Map<String, dynamic>>> _todayChatStream() {
     if (!snap.exists) return <Map<String, dynamic>>[];
     final data = snap.data()!;
     final list = List<Map<String, dynamic>>.from(data['messages'] ?? []);
-    // createdAt 기준 정렬(서버 타임스탬프가 동일해도 안전하게)
     list.sort((a, b) {
       final ta = a['createdAt'];
       final tb = b['createdAt'];
@@ -90,7 +87,7 @@ class MyCustomSource extends StreamAudioSource {
 
 class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _controller = TextEditingController();
-  final ScrollController _scrollController = ScrollController(); // 🔧 스크롤 컨트롤러 생성
+  final ScrollController _scrollController = ScrollController();
   bool _isLoading = false;
 
   late AudioRecorder _audioRecorder;
@@ -108,11 +105,10 @@ class _ChatScreenState extends State<ChatScreen> {
     _audioRecorder.dispose();
     _audioPlayer.dispose();
     _controller.dispose();
-    _scrollController.dispose(); // 🔧 스크롤 컨트롤러 정리
+    _scrollController.dispose();
     super.dispose();
   }
 
-  // 🔧 스크롤을 맨 아래로 즉시 이동시키는 함수
   void _scrollToBottom() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
@@ -123,24 +119,27 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
-  // 챗봇의 텍스트 응답을 음성으로 재생하는 함수
   Future<void> _playBotTts(String textToSpeak) async {
-    final url = Uri.parse('http://10.0.2.2:8000/chat-tts');
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    final url = Uri.parse('http://10.0.2.2:8000/tts');
     try {
       final res = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"user_input": textToSpeak, "medicine_time": false}),
+        body: jsonEncode({"text": textToSpeak}),
       );
 
       if (res.statusCode == 200) {
         await _audioPlayer.setAudioSource(MyCustomSource(res.bodyBytes));
-        await _audioPlayer.play();
+        _audioPlayer.play();
       } else {
         print("TTS 서버 오류: ${res.statusCode}");
       }
     } catch (e) {
       print("TTS 네트워크 오류: $e");
+    } finally {
+      if(mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -229,16 +228,10 @@ class _ChatScreenState extends State<ChatScreen> {
     });
 
     try {
-      // 1) 유저 메시지 저장
       await _appendChatMessage(role: 'user', text: userInput);
-
-      // 2) 서버에서 답변 받기
       final botReply = await _fetchBotResponse(userInput);
-
-      // 3) 봇 메시지 저장
       await _appendChatMessage(role: 'bot', text: botReply);
 
-      // 4) (옵션) 봇 음성 재생 -> 앞으로 만들어가야함.
       if (playTts) {
         await _playBotTts(botReply);
       }
@@ -254,12 +247,39 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  // 🔧 기능 버튼들을 보여주는 위젯
+  Widget _buildMessageOptions(String text, bool isUser) {
+    return Container(
+      margin: isUser
+          ? EdgeInsets.only(right: 8, bottom: 4)
+          : EdgeInsets.only(left: 56, bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        children: [
+          if (isUser) ...[
+            _OptionButton(icon: Icons.edit, onTap: () {
+              _controller.text = text;
+            }),
+            SizedBox(width: 4),
+            _OptionButton(icon: Icons.refresh, onTap: () {
+              _sendMessage(textToSend: text, playTts: true);
+            }),
+          ],
+          if (!isUser) ...[
+            _OptionButton(icon: Icons.volume_up, onTap: () {
+              _playBotTts(text);
+            }),
+          ],
+        ],
+      ),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("AI 채팅"),
-      ),
       body: Column(
         children: [
           Expanded(
@@ -271,65 +291,141 @@ class _ChatScreenState extends State<ChatScreen> {
                 }
 
                 final messages = snapshot.data!;
-                // 데이터 들어온 뒤 스크롤 맨 아래
                 WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
                 return ListView.builder(
                   controller: _scrollController,
                   itemCount: messages.length,
+                  padding: EdgeInsets.symmetric(vertical: 10),
                   itemBuilder: (context, index) {
                     final m = messages[index];
                     final isUser = (m['role'] == 'user');
                     final text = (m['text'] ?? '').toString();
 
-                    return Align(
-                      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-                      child: Container(
-                        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isUser ? Colors.green[100] : Colors.grey[200],
-                          borderRadius: BorderRadius.circular(12),
+                    return Column(
+                      crossAxisAlignment: isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                      children: [
+                        MessageBubble(
+                          text: text,
+                          isUser: isUser,
                         ),
-                        child: Text(text),
-                      ),
+                        _buildMessageOptions(text, isUser),
+                      ],
                     );
                   },
                 );
               },
             ),
           ),
-          Divider(),
+          Divider(height: 1),
           if (_isLoading)
             Padding(
               padding: EdgeInsets.all(8),
-              child: CircularProgressIndicator(),
+              child: LinearProgressIndicator(),
             ),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Row(
-              children: [
-                // 🔧 마이크 버튼을 왼쪽으로 이동
-                IconButton(
-                  icon: Icon(_isRecording ? Icons.stop : Icons.mic),
-                  onPressed: _isLoading ? null : _handleMicButtonPressed,
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: InputDecoration(hintText: "메시지를 입력하세요"),
+          Container(
+            padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            color: Theme.of(context).cardColor,
+            child: SafeArea(
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(_isRecording ? Icons.stop_circle : Icons.mic, color: _isRecording ? Colors.red : Theme.of(context).iconTheme.color),
+                    onPressed: _isLoading ? null : _handleMicButtonPressed,
                   ),
-                ),
-                // 🔧 전송 버튼은 오른쪽에 그대로 둡니다.
-                IconButton(
-                  icon: Icon(Icons.send),
-                  onPressed: _isLoading ? null : () => _sendMessage(playTts: false),
-                ),
-              ],
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      decoration: InputDecoration(
+                        hintText: "메시지를 입력하세요",
+                        border: InputBorder.none,
+                        filled: true,
+                        fillColor: Colors.grey.shade200,
+                        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      ),
+                      onSubmitted: (value) => _sendMessage(playTts: false),
+                    ),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.send),
+                    onPressed: _isLoading ? null : () => _sendMessage(playTts: false),
+                  ),
+                ],
+              ),
             ),
           ),
-          SizedBox(height: 10),
         ],
+      ),
+    );
+  }
+}
+
+// 말풍선 UI를 위한 별도의 위젯
+class MessageBubble extends StatelessWidget {
+  final String text;
+  final bool isUser;
+
+  const MessageBubble({
+    Key? key,
+    required this.text,
+    required this.isUser,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      child: Row(
+        mainAxisAlignment: isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (!isUser) ...[
+            CircleAvatar(
+              child: Icon(Icons.support_agent),
+              backgroundColor: Colors.grey.shade300,
+            ),
+            SizedBox(width: 8),
+          ],
+          Flexible(
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isUser ? Colors.green[100] : Colors.grey[200],
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(16),
+                  topRight: Radius.circular(16),
+                  bottomLeft: isUser ? Radius.circular(16) : Radius.circular(0),
+                  bottomRight: isUser ? Radius.circular(0) : Radius.circular(16),
+                ),
+              ),
+              child: Text(text),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// 🔧 기능 버튼을 위한 작은 위젯 (라벨 제거)
+class _OptionButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _OptionButton({
+    Key? key,
+    required this.icon,
+    required this.onTap,
+  }) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20), // 원형 터치 효과
+      child: Padding(
+        padding: const EdgeInsets.all(6), // 패딩 조정
+        child: Icon(icon, size: 18, color: Colors.black54), // 아이콘 크기 조정
       ),
     );
   }

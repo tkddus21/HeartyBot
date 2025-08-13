@@ -23,7 +23,9 @@ dependencies:
   google_sign_in: ^6.2.1
   # medication_screen에 사용
   crypto: ^3.0.3
-  intl: ^0.19.0
+  intl: ^0.20.2 #버전 업그레이드 19.0 ->20.2
+  flutter_localizations:
+    sdk: flutter
 
   # 음성 녹음 기능에 필요한 패키지지
   flutter_sound: ^9.2.13

@@ -1,4 +1,3 @@
-// home_screen.dart
 import 'package:flutter/material.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -24,10 +23,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _selectedDay = _focusedDay;
   }
 
-  // 🔧 현재 시간에 맞는 인사말을 반환하는 함수
   String _getGreeting() {
     final int hour = DateTime.now().hour;
-
     if (hour >= 7 && hour < 12) {
       return "활기찬 오전, 기분 좋게 보내세요.";
     } else if (hour >= 12 && hour < 18) {
@@ -55,7 +52,6 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!snapshot.hasData) {
           return Card(child: Padding(padding: EdgeInsets.all(16), child: Text('데이터 로딩 중...')));
         }
-
         final meds = snapshot.data!.docs.where((doc) {
           final data = doc.data() as Map<String, dynamic>;
           final start = data['startDate'];
@@ -64,14 +60,12 @@ class _HomeScreenState extends State<HomeScreen> {
               selectedDateStr.compareTo(start) >= 0 &&
               selectedDateStr.compareTo(end) <= 0;
         }).toList();
-
         final allTaken = meds.every((doc) {
           final data = doc.data() as Map<String, dynamic>;
           return data['taken'] == true;
         });
-
         return Card(
-          margin: EdgeInsets.all(16),
+          margin: EdgeInsets.zero,
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
@@ -105,42 +99,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildHomeBody() {
     return SingleChildScrollView(
-      child: Column(
-        children: [
-          SizedBox(height: 20),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              CircleAvatar(radius: 30, backgroundColor: Colors.grey[300]),
-              SizedBox(width: 12),
-              // 🔧 기존 Text 위젯을 함수 호출로 변경
-              Text(_getGreeting(), style: TextStyle(fontSize: 16)),
-            ],
-          ),
-          SizedBox(height: 20),
-          // 🔧 GestureDetector로 달력을 감싸 스와이프 방향을 직접 제어합니다.
-          GestureDetector(
-            onVerticalDragEnd: (details) {
-              // 아래로 스와이프하면 (속도가 양수)
-              if (details.primaryVelocity! > 0) {
-                setState(() {
-                  _calendarFormat = CalendarFormat.month; // 월간 달력으로 변경
-                });
-              }
-              // 위로 스와이프하면 (속도가 음수)
-              else if (details.primaryVelocity! < 0) {
-                setState(() {
-                  _calendarFormat = CalendarFormat.week; // 주간 달력으로 변경
-                });
-              }
-            },
-            child: TableCalendar(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+        child: Column(
+          // 🔧 crossAxisAlignment를 제거하여 자식 위젯들이 중앙 정렬되도록 합니다.
+          children: [
+            SizedBox(height: 20),
+            Row(
+              // 🔧 mainAxisAlignment를 center로 설정하여 중앙 정렬합니다.
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircleAvatar(radius: 30, backgroundColor: Colors.grey[300]),
+                SizedBox(width: 12),
+                Flexible(
+                  child: Text(_getGreeting(), style: TextStyle(fontSize: 16)),
+                ),
+              ],
+            ),
+            SizedBox(height: 20),
+            TableCalendar(
+              locale: 'ko_KR',
               firstDay: DateTime.utc(2020, 1, 1),
               lastDay: DateTime.utc(2030, 12, 31),
               focusedDay: _focusedDay,
               calendarFormat: _calendarFormat,
-              // 🔧 달력 자체의 스와이프 기능은 끕니다.
-              availableGestures: AvailableGestures.none,
+              availableCalendarFormats: const {
+                CalendarFormat.week: 'Week',
+                CalendarFormat.month: 'Month',
+              },
               onFormatChanged: (format) {
                 if (_calendarFormat != format) {
                   setState(() {
@@ -157,14 +143,18 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               calendarStyle: CalendarStyle(
                 selectedDecoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
-                todayDecoration: BoxDecoration(color: Colors.deepPurple.withOpacity(0.5), shape: BoxShape.circle),
+                todayDecoration: BoxDecoration(color: Colors.deepPurple.shade200, shape: BoxShape.circle),
               ),
-              headerStyle: HeaderStyle(formatButtonVisible: false, titleCentered: true),
+              headerStyle: HeaderStyle(
+                formatButtonVisible: false,
+                titleCentered: true,
+                titleTextStyle: TextStyle(fontSize: 18.0),
+              ),
             ),
-          ),
-          SizedBox(height: 20),
-          _buildMedicationStatusCard(),
-        ],
+            SizedBox(height: 20),
+            _buildMedicationStatusCard(),
+          ],
+        ),
       ),
     );
   }
@@ -188,12 +178,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        automaticallyImplyLeading: false,
+        // 🔧 AppBar를 다시 기본 스타일로 되돌리고 제목을 추가합니다.
+        title: Text('또바기'),
+        centerTitle: true, // 제목을 중앙에配置
         leading: IconButton(
           icon: Icon(Icons.settings),
           onPressed: () => Navigator.pushNamed(context, '/settings'),
         ),
-        title: Text("또바기 홈"),
         actions: [
           IconButton(
             icon: Icon(Icons.notifications_none),
