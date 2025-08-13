@@ -1,70 +1,29 @@
-from fastapi import APIRouter, Body, HTTPException
-from fastapi.responses import FileResponse
-from openai import OpenAI
+from fastapi import APIRouter, Body, HTTPException, Response
 from gtts import gTTS
-from datetime import datetime
-import os
+from io import BytesIO
 
 router = APIRouter()
-GPT_MODEL = "gpt-4o-mini"
 
-def get_openai_client():
-    openai_key = os.getenv("OPENAI_API_KEY")
-    if not openai_key:
-        raise RuntimeError("환경변수 OPENAI_API_KEY가 설정되어 있지 않습니다.")
-    return OpenAI(api_key=openai_key)
-
-def generate_prompt(user_input: str, medicine_time: bool = False) -> str:
-    today = datetime.now().strftime("%Y년 %m월 %d일")
-    system_message = (
-        f"너는 어르신과 대화하는 다정한 한국어 챗봇이야. "
-        f"항상 공감하고 존중하는 말투를 써. 인사말은 한 번만 자연스럽게 하고 반복하지 마. "
-        f"오늘은 {today}이야. 실시간 정보는 제공할 수 없으니 양해를 구하고, 가능한 정보 내에서 답변해줘."
-    )
-
-    if medicine_time:
-        user_input = f"[중요 공지: 지금 약 드실 시간입니다!] {user_input}"
-
-    return system_message, user_input
-
-def gpt_reply(sys_prompt: str, user_input: str) -> str:
-    messages = [
-        {"role": "system", "content": sys_prompt},
-        {"role": "user", "content": user_input}
-    ]
+@router.post("/tts")
+async def text_to_speech(text: str = Body(..., embed=True)):
+    if not text:
+        raise HTTPException(status_code=400, detail="텍스트를 입력해주세요.")
 
     try:
-        client = get_openai_client()
-        response = client.chat.completions.create(
-            model=GPT_MODEL,
-            messages=messages,
-            max_tokens=200,
+        mp3_fp = BytesIO()
+        gTTS(text, lang="ko", slow=False).write_to_fp(mp3_fp)
+
+        mp3_data = mp3_fp.getvalue()
+        if len(mp3_data) < 100:
+            print("TTS 생성 실패: 생성된 오디오 파일이 너무 작습니다.")
+            raise HTTPException(status_code=500, detail="gTTS에서 빈 오디오 파일을 생성했습니다.")
+
+        return Response(
+            content=mp3_data,
+            media_type="audio/mpeg",
+            headers={"Content-Length": str(len(mp3_data))}
         )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        raise RuntimeError(f"GPT TTS Error: {e}")
-
-@router.post("/chat-tts")
-async def chat_tts(
-    user_input: str = Body(..., embed=True),
-    medicine_time: bool = Body(False, embed=True)
-):
-    try:
-        sys_prompt, prompt = generate_prompt(user_input, medicine_time)
-        generated = gpt_reply(sys_prompt, prompt)
-
-        # 최대 2~3문장만 반환
-        sentences = generated.split("다.")
-        tts_text = "다.".join(sentences[:3]).strip()
-        if not tts_text.endswith("다.") and len(sentences) >= 1:
-            tts_text += "다."
-
-        # TTS 처리
-        tts = gTTS(tts_text, lang="ko")
-        filepath = "chatbot_reply.mp3"
-        tts.save(filepath)
-
-        return FileResponse(filepath, media_type="audio/mpeg", filename="chatbot_reply.mp3")
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"TTS 생성 중 심각한 오류 발생: {e}")
+        raise HTTPException(status_code=500, detail=f"TTS Error: {e}")
