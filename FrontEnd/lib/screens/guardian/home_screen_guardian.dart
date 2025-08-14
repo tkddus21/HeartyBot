@@ -4,17 +4,20 @@ import 'guardian_emotion_diary_screen.dart';
 import 'guardian_chat_log_screen.dart';
 import 'guardian_medication_screen.dart';
 import 'guardian_alert_screen.dart';
-import 'package:ddobaki_app/screens/settings_screen_second.dart';
+import '../settings_screen_second.dart';
 
 class HomeScreenGuardian extends StatefulWidget {
+  const HomeScreenGuardian({super.key});
   @override
-  _HomeScreenGuardianState createState() => _HomeScreenGuardianState();
+  State<HomeScreenGuardian> createState() => _HomeScreenGuardianState();
 }
 
 class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
-  int _selectedIndex = 0;
+  final _purple = const Color(0xFF7B61FF);
+  final _bg = const Color(0xFFF6F5FC);
+  int _idx = 0;
 
-  final List<Widget> _screens = [
+  final _pages = const [
     GuardianReportScreen(),
     GuardianEmotionDiaryScreen(),
     GuardianChatLogScreen(),
@@ -22,51 +25,38 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
     GuardianAlertScreen(),
   ];
 
-  final List<String> _titles = [
-    "오늘의 리포트",
-    "감정 일지",
-    "대화 기록",
-    "약 복용 기록",
-    "긴급 알림",
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Color(0xFFF6F5FC),
+      backgroundColor: _bg,
       appBar: AppBar(
-        backgroundColor: Color(0xFF7B61FF),
-        title: Text(
-          _titles[_selectedIndex],
-          style: TextStyle(color: Colors.white),
-        ),
+        backgroundColor: _purple,
+        foregroundColor: Colors.white,
+        // 왼쪽 상단 톱니바퀴 버튼
         leading: IconButton(
-          icon: Icon(Icons.settings, color: Colors.white),
+          icon: const Icon(Icons.settings),
           onPressed: () {
             Navigator.push(
               context,
-              MaterialPageRoute(builder: (context) => SettingsScreenSecond()),
+              MaterialPageRoute(builder: (_) => const SettingsScreenSecond()),
             );
           },
         ),
+        // 스샷 텍스트에 맞춤
+        title: const Text('담당 어르신 요약'),
       ),
-      body: _screens[_selectedIndex],
+      body: _pages[_idx],
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        selectedItemColor: Color(0xFF7B61FF),
-        unselectedItemColor: Colors.grey,
-        backgroundColor: Colors.white,
-        onTap: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
-        items: [
-          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: "리포트"),
-          BottomNavigationBarItem(icon: Icon(Icons.insert_emoticon), label: "감정일지"),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: "대화"),
-          BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: "약복용"),
-          BottomNavigationBarItem(icon: Icon(Icons.warning), label: "알림"),
+        currentIndex: _idx,
+        onTap: (i) => setState(() => _idx = i),
+        selectedItemColor: _purple,
+        unselectedItemColor: const Color(0xFFBDBDBD),
+        items: const [
+          BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: '홈'),
+          BottomNavigationBarItem(icon: Icon(Icons.emoji_emotions), label: '감정'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat), label: '대화'),
+          BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: '약'),
+          BottomNavigationBarItem(icon: Icon(Icons.warning), label: '알림'),
         ],
       ),
     );
