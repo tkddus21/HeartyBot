@@ -20,23 +20,18 @@ class _MedicationScreenState extends State<MedicationScreen> {
   @override
   void initState() {
     super.initState();
-    // 홈 화면(캘린더)에서 오늘 도즈가 필요할 수 있어 유지
     ensureTodayDoses(_uid);
   }
 
-  // 날짜 무관 "약 목록" 스트림
   Stream<QuerySnapshot<Map<String, dynamic>>> _medicationsStream() {
     return FirebaseFirestore.instance
         .collection('users')
         .doc(_uid)
         .collection('medications')
         .orderBy('createdAt', descending: true)
-        .withConverter<Map<String, dynamic>>(
-      fromFirestore: (s, _) => s.data() ?? {},
-      toFirestore: (d, _) => d,
-    )
         .snapshots();
   }
+
 
   // 수정 시트 (v1: 여러 시간 + 요일 선택 지원)
   Future<void> _editMed(DocumentSnapshot<Map<String, dynamic>> doc) async {
@@ -373,7 +368,7 @@ class _MedicationScreenState extends State<MedicationScreen> {
     );
   }
 
-  void _goToAddPage() {
+   void _goToAddPage() {
     Navigator.push(context, MaterialPageRoute(builder: (_) => const MedicationAddScreen()));
   }
 
@@ -411,88 +406,100 @@ class _MedicationScreenState extends State<MedicationScreen> {
             );
           }
 
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
-            itemCount: meds.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (context, i) {
-              final doc = meds[i];
-              final m = doc.data();
-              final name = (m['name'] ?? '') as String;
-              final times = (m['times'] as List?)?.cast<String>() ?? [];
-              final timeLabel = times.isEmpty ? '' : times.join(' · ');
-              final startAt = (m['startAt'] as Timestamp?)?.toDate();
-              final endAt = (m['endAt'] as Timestamp?)?.toDate();
-              final rangeLabel = (startAt != null && endAt != null)
-                  ? '${DateFormat('yyyy.MM.dd').format(startAt)} ~ ${DateFormat('yyyy.MM.dd').format(endAt)}'
-                  : '';
-              final active = (m['active'] == true);
-
-              // 요일 라벨 변환
-              final dows = (m['daysOfWeek'] as List?)?.cast<int>() ?? [];
-              final dowLabel = dows.isEmpty
-                  ? '매일'
-                  : dows.map((i) => dowLabels[i.clamp(0,6)]).join(', ');
-
-              return Container(
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _brandPurple.withOpacity(0.18)),
+          return SafeArea(
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(
+                  16,
+                  16,
+                  16,
+                  16 + kFloatingActionButtonMargin + 56,
                 ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  title: Row(
-                    children: [
-                      const Icon(Icons.medication, color: _brandPurple),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          name,
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-                        ),
+                itemCount: meds.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (context, i) {
+                  final doc = meds[i];
+                  final data = doc.data();
+                  final name = (data['name'] ?? '') as String;
+                  final times = (data['times'] as List?)?.cast<String>() ?? [];
+                  final timeLabel = times.isEmpty ? '' : times.join(' · ');
+                  final startAt = (data['startAt'] as Timestamp?)?.toDate();
+                  final endAt = (data['endAt'] as Timestamp?)?.toDate();
+                  final rangeLabel = (startAt != null && endAt != null)
+                      ? '${DateFormat('yyyy.MM.dd').format(startAt)} ~ ${DateFormat('yyyy.MM.dd').format(endAt)}'
+                      : '';
+                  final active = (data['active'] == true);
+
+                  final dows = (data['daysOfWeek'] as List?)?.cast<int>() ?? [];
+                  final dowLabel = dows.isEmpty
+                      ? '매일'
+                      : dows.map((i) => dowLabels[i.clamp(0,6)]).join(', ');
+
+                  return Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: _brandPurple.withOpacity(0.18)),
+                    ),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      title: Row(
+                        children: [
+                          const Icon(Icons.medication, color: _brandPurple),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          if (!active)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 6),
+                              child: Chip(label: Text('비활성'), visualDensity: VisualDensity.compact),
+                            ),
+                        ],
                       ),
-                      if (!active)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 6),
-                          child: Chip(label: Text('비활성'), visualDensity: VisualDensity.compact),
-                        ),
-                    ],
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (timeLabel.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text('복용 시간: $timeLabel',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                        ),
-                      if (rangeLabel.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: Text('기간: $rangeLabel',
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          '요일: $dowLabel',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
-                        ),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (timeLabel.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text('복용 시간: $timeLabel',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                            ),
+                          if (rangeLabel.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text('기간: $rangeLabel',
+                                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                            ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Text(
+                              '요일: $dowLabel',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  onLongPress: () => _showItemActions(doc), // ⟵ 롱프레스 액션
-                ),
-              );
-            },
+                      onLongPress: () => _showItemActions(doc),
+                    ),
+                  );
+                },
+              ),
+            ),
           );
         },
       ),
     );
   }
 }
+ 
 
 /// 약 정의/스케줄 추가 화면 (v1: 여러 시간 + 요일 선택)
 class MedicationAddScreen extends StatefulWidget {
