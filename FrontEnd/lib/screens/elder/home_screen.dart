@@ -7,6 +7,7 @@ import 'diary_screen.dart';
 import 'medication_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// medication_screen.dart에 ensureDosesForDate/ensureTodayDoses 가 정의되어 있어야 합니다.
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -23,7 +24,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
-    ensureTodayDoses(FirebaseAuth.instance.currentUser!.uid); // 오늘 날짜 체크리스트 생성 보장
+    // 시작 시 현재 포커스된 날짜(오늘)에 대해 체크리스트 생성 보장
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    ensureDosesForDate(uid, _focusedDay);
   }
 
   String _getGreeting() {
@@ -43,165 +46,160 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _selectedIndex = index);
   }
 
-  String _formatDate(DateTime date) {
-    return DateFormat('yyyy-MM-dd').format(date);
-  }
+  String _formatDate(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 
-Widget _buildMedicationStatusCard() {
-  final uid = FirebaseAuth.instance.currentUser!.uid;
+  Widget _buildMedicationStatusCard() {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final selected = _selectedDay ?? DateTime.now();
+    final dayId = DateFormat('yyyy-MM-dd').format(selected);
 
-  final selected = _selectedDay ?? DateTime.now();
-  final dayId = DateFormat('yyyy-MM-dd').format(selected);
+    final dosesRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('days')
+        .doc(dayId)
+        .collection('doses');
 
-  final dosesRef = FirebaseFirestore.instance
-      .collection('users')
-      .doc(uid)
-      .collection('days')
-      .doc(dayId)
-      .collection('doses');
+    return Card(
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 1,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: dosesRef.orderBy('scheduledAt').snapshots(),
+          builder: (context, snapshot) {
+            // 로딩 표시
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const SizedBox(
+                height: 120,
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
 
-  return Card(
-    margin: EdgeInsets.zero,
-    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-    elevation: 1,
-    child: Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: dosesRef.orderBy('scheduledAt').snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const SizedBox(
-              height: 120,
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
+            final docs = snapshot.data?.docs ?? const [];
+            if (docs.isEmpty) {
+              // 선택된 날짜용 생성/새로고침 버튼 제공
+              final isToday = DateUtils.isSameDay(selected, DateTime.now());
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('약 복용', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 8),
+                  Text(isToday ? '오늘 복용할 약이 없습니다.' : '해당 날짜에 복용 일정이 없습니다.'),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await ensureDosesForDate(uid, selected);
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: Text('${_formatDate(selected)} 체크리스트 생성/새로고침'),
+                  ),
+                ],
+              );
+            }
 
-          final docs = snapshot.data?.docs ?? const [];
-          if (docs.isEmpty) {
-            final isToday = DateUtils.isSameDay(selected, DateTime.now());
+            final total = docs.length;
+            final taken =
+                docs.where((d) => (d.data()['status'] == 'taken')).length;
+            final progress = total == 0 ? 0.0 : taken / total;
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('약 복용', style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
-                Text(isToday ? '오늘 복용할 약이 없습니다.' : '해당 날짜에 복용 일정이 없습니다.'),
-                if (isToday) ...[
-                  const SizedBox(height: 8),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      await ensureTodayDoses(uid);
-                    },
-                    icon: const Icon(Icons.refresh),
-                    label: const Text('오늘 체크리스트 생성/새로고침'),
-                  ),
-                ],
-              ],
-            );
-          }
 
-          final total = docs.length;
-          final taken = docs.where((d) => (d.data()['status'] == 'taken')).length;
-          final progress = total == 0 ? 0.0 : taken / total;
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('약 복용', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-
-              // 진행률
-              Row(
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(6),
-                      child: LinearProgressIndicator(minHeight: 8, value: progress),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text('$taken / $total'),
-                ],
-              ),
-
-              const SizedBox(height: 12),
-
-              // 리스트 (체크 토글 → Firestore 반영)
-              ListView.separated(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: docs.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final d = docs[i];
-                  final data = d.data();
-                  final medName = (data['medName'] ?? '') as String;
-                  final status = (data['status'] ?? 'pending') as String;
-                  final isTaken = status == 'taken';
-                  final sched = (data['scheduledAt'] as Timestamp?)?.toDate();
-                  final label = sched != null ? DateFormat('HH:mm').format(sched) : '-';
-
-                  final overdue = !isTaken &&
-                      sched != null &&
-                      DateTime.now().isAfter(sched.add(const Duration(minutes: 30)));
-
-                  return CheckboxListTile(
-                    value: isTaken,
-                    onChanged: (v) async {
-                      await d.reference.update({
-                        'status': v == true ? 'taken' : 'pending',
-                        'takenAt': v == true ? FieldValue.serverTimestamp() : null,
-                        'updatedAt': FieldValue.serverTimestamp(),
-                      });
-                    },
-                    controlAffinity: ListTileControlAffinity.leading,
-                    secondary: Text(
-                      label,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: overdue ? Colors.redAccent : null,
+                // 진행률
+                Row(
+                  children: [
+                    Expanded(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(minHeight: 8, value: progress),
                       ),
                     ),
-                    title: Text(medName, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: overdue
-                        ? const Text('예정 시간 경과', style: TextStyle(color: Colors.redAccent))
-                        : null,
-                  );
-                },
-              ),
-            ],
-          );
-        },
+                    const SizedBox(width: 8),
+                    Text('$taken / $total'),
+                  ],
+                ),
+
+                const SizedBox(height: 12),
+
+                // 리스트 (체크 토글 → Firestore 반영)
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (context, i) {
+                    final d = docs[i];
+                    final data = d.data();
+                    final medName = (data['medName'] ?? '') as String;
+                    final status = (data['status'] ?? 'pending') as String;
+                    final isTaken = status == 'taken';
+                    final sched = (data['scheduledAt'] as Timestamp?)?.toDate();
+                    final label =
+                        sched != null ? DateFormat('HH:mm').format(sched) : '-';
+
+                    final overdue = !isTaken &&
+                        sched != null &&
+                        DateTime.now().isAfter(sched.add(const Duration(minutes: 30)));
+
+                    return CheckboxListTile(
+                      value: isTaken,
+                      onChanged: (v) async {
+                        await d.reference.update({
+                          'status': v == true ? 'taken' : 'pending',
+                          'takenAt': v == true ? FieldValue.serverTimestamp() : null,
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        });
+                      },
+                      controlAffinity: ListTileControlAffinity.leading,
+                      secondary: Text(
+                        label,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: overdue ? Colors.redAccent : null,
+                        ),
+                      ),
+                      title: Text(medName,
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: overdue
+                          ? const Text('예정 시간 경과',
+                              style: TextStyle(color: Colors.redAccent))
+                          : null,
+                    );
+                  },
+                ),
+              ],
+            );
+          },
+        ),
       ),
-    ),
-  );
-}
-
-
+    );
+  }
 
   Widget _buildHomeBody() {
     return SingleChildScrollView(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Column(
-          // 🔧 crossAxisAlignment를 제거하여 자식 위젯들이 중앙 정렬되도록 합니다.
           children: [
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             Row(
-              // 🔧 mainAxisAlignment를 center로 설정하여 중앙 정렬합니다.
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 CircleAvatar(radius: 30, backgroundColor: Colors.grey[300]),
-                SizedBox(width: 12),
-                Flexible(
-                  child: Text(_getGreeting(), style: TextStyle(fontSize: 16)),
-                ),
+                const SizedBox(width: 12),
+                Flexible(child: Text(_getGreeting(), style: const TextStyle(fontSize: 16))),
               ],
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             TableCalendar(
               locale: 'ko_KR',
               firstDay: DateTime.utc(2020, 1, 1),
-              lastDay: DateTime.utc(2030, 12, 31),
+              lastDay: DateTime.utc(2035, 12, 31),
               focusedDay: _focusedDay,
               calendarFormat: _calendarFormat,
               availableCalendarFormats: const {
@@ -210,29 +208,32 @@ Widget _buildMedicationStatusCard() {
               },
               onFormatChanged: (format) {
                 if (_calendarFormat != format) {
-                  setState(() {
-                    _calendarFormat = format;
-                  });
+                  setState(() => _calendarFormat = format);
                 }
               },
               selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
-              onDaySelected: (selectedDay, focusedDay) {
+              onDaySelected: (selectedDay, focusedDay) async {
                 setState(() {
                   _selectedDay = selectedDay;
                   _focusedDay = focusedDay;
                 });
+                // 선택된 날짜용 체크리스트 생성 보장
+                final uid = FirebaseAuth.instance.currentUser!.uid;
+                await ensureDosesForDate(uid, selectedDay);
               },
               calendarStyle: CalendarStyle(
-                selectedDecoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
-                todayDecoration: BoxDecoration(color: Colors.deepPurple.shade200, shape: BoxShape.circle),
+                selectedDecoration:
+                    const BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
+                todayDecoration:
+                    BoxDecoration(color: Colors.deepPurple.shade200, shape: BoxShape.circle),
               ),
-              headerStyle: HeaderStyle(
+              headerStyle: const HeaderStyle(
                 formatButtonVisible: false,
                 titleCentered: true,
                 titleTextStyle: TextStyle(fontSize: 18.0),
               ),
             ),
-            SizedBox(height: 20),
+            const SizedBox(height: 20),
             _buildMedicationStatusCard(),
           ],
         ),
@@ -259,16 +260,15 @@ Widget _buildMedicationStatusCard() {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // 🔧 AppBar를 다시 기본 스타일로 되돌리고 제목을 추가합니다.
-        title: Text('또바기'),
-        centerTitle: true, // 제목을 중앙에配置
+        title: const Text('또바기'),
+        centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.settings),
+          icon: const Icon(Icons.settings),
           onPressed: () => Navigator.pushNamed(context, '/settings'),
         ),
         actions: [
           IconButton(
-            icon: Icon(Icons.notifications_none),
+            icon: const Icon(Icons.notifications_none),
             onPressed: () {},
           ),
         ],

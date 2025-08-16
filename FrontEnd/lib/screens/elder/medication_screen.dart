@@ -828,8 +828,7 @@ class _MedicationAddScreenState extends State<MedicationAddScreen> {
 //
 // ====== 유틸 & 오늘의 도즈 생성 (홈 캘린더용) ======
 //
-String todayId(DateTime now) =>
-    DateFormat('yyyy-MM-dd').format(now);
+String todayId(DateTime now) => DateFormat('yyyy-MM-dd').format(now);
 
 bool _isWithinDay(DateTime day, DateTime start, DateTime end) {
   final d = DateTime(day.year, day.month, day.day);
@@ -844,8 +843,7 @@ Future<void> ensureTodayDoses(String uid) async {
   final now = DateTime.now();
   final dayId = todayId(now);
 
-  final dayRef =
-      db.collection('users').doc(uid).collection('days').doc(dayId);
+  final dayRef = db.collection('users').doc(uid).collection('days').doc(dayId);
   final dosesRef = dayRef.collection('doses');
 
   // 이미 생성되어 있으면 스킵
@@ -870,20 +868,18 @@ Future<void> ensureTodayDoses(String uid) async {
   for (final m in medsSnap.docs) {
     final med = m.data();
     final name = med['name'] as String? ?? '';
-    final times =
-        (med['times'] as List?)?.cast<String>() ?? <String>[];
+    final times = (med['times'] as List?)?.cast<String>() ?? <String>[];
 
     final startAt = (med['startAt'] as Timestamp?)?.toDate();
-    final endAt = (med['endAt'] as Timestamp?)?.toDate();
+    final endAt   = (med['endAt']   as Timestamp?)?.toDate();
     if (startAt == null || endAt == null) continue;
     if (!_isWithinDay(now, startAt, endAt)) continue;
 
     // 요일 필터 (0=일..6=토)
-    final daysOfWeek =
-        (med['daysOfWeek'] as List?)?.cast<int>() ?? <int>[];
+    final daysOfWeek = (med['daysOfWeek'] as List?)?.cast<int>() ?? <int>[];
     if (daysOfWeek.isNotEmpty) {
-      // Dart weekday: Mon=1..Sun=7 → 0..6으로 변환 (Sun=0)
-      final dow0 = now.weekday % 7; // 1..6,7→0
+      // Dart weekday: Mon=1..Sun=7 → 0..6 (Sun=0)
+      final dow0 = now.weekday % 7; // 1..6, 7→0
       if (!daysOfWeek.contains(dow0)) continue;
     }
 
@@ -893,12 +889,96 @@ Future<void> ensureTodayDoses(String uid) async {
       if (parts.length != 2) continue;
       final hh = int.tryParse(parts[0]) ?? 0;
       final mm = int.tryParse(parts[1]) ?? 0;
-      final sched =
-          DateTime(now.year, now.month, now.day, hh, mm);
+      final sched = DateTime(now.year, now.month, now.day, hh, mm);
 
       // 중복 방지 키 → doseId
-      final key =
-          '${m.id}_${DateFormat('yyyyMMdd').format(now)}_$t';
+      final key    = '${m.id}_${DateFormat('yyyyMMdd').format(now)}_$t';
+      final doseId = sha1.convert(utf8.encode(key)).toString();
+
+      batch.set(dosesRef.doc(doseId), {
+        'medId': m.id,
+        'medName': name,
+        'scheduledAt': Timestamp.fromDate(sched),
+        'status': 'pending',
+        'takenAt': null,
+        'sourceKey': key,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  // ✅ 빠져 있던 커밋 + 함수 닫기
+  await batch.commit();
+}
+
+/// yyyy-MM-dd
+String dayIdOf(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
+
+/// 선택한 날짜(day)의 체크리스트(doses) 자동 생성 (미래/과거 포함)
+Future<void> ensureDosesForDate(String uid, DateTime day) async {
+  final db = FirebaseFirestore.instance;
+
+  // 날짜를 자정 기준으로 보정 (시간 00:00:00)
+  final base  = DateTime(day.year, day.month, day.day);
+  final dayId = dayIdOf(base);
+
+  final dayRef   = db.collection('users').doc(uid).collection('days').doc(dayId);
+  final dosesRef = dayRef.collection('doses');
+
+  // 이미 생성되어 있으면 스킵
+  final exist = await dosesRef.limit(1).get();
+  if (exist.docs.isNotEmpty) return;
+
+  // 활성 약 목록
+  final medsSnap = await db
+      .collection('users')
+      .doc(uid)
+      .collection('medications')
+      .where('active', isEqualTo: true)
+      .get();
+
+  final batch = db.batch();
+
+  // days 컨테이너 보장
+  batch.set(dayRef, {
+    'date': dayId,
+    'createdAt': FieldValue.serverTimestamp(),
+  }, SetOptions(merge: true));
+
+  for (final m in medsSnap.docs) {
+    final med   = m.data();
+    final name  = med['name'] as String? ?? '';
+    final times = (med['times'] as List?)?.cast<String>() ?? <String>[];
+
+    final startAt = (med['startAt'] as Timestamp?)?.toDate();
+    final endAt   = (med['endAt']   as Timestamp?)?.toDate();
+    if (startAt == null || endAt == null) continue;
+
+    // 기간 필터: base 날짜가 [startAt, endAt] 범위 내인지
+    final inRange = () {
+      final d = DateTime(base.year, base.month, base.day);
+      final s = DateTime(startAt.year, startAt.month, startAt.day);
+      final e = DateTime(endAt.year,   endAt.month,   endAt.day, 23, 59, 59);
+      return !d.isBefore(s) && !d.isAfter(e);
+    }();
+    if (!inRange) continue;
+
+    // 요일 필터 (0=일..6=토)
+    final daysOfWeek = (med['daysOfWeek'] as List?)?.cast<int>() ?? <int>[];
+    if (daysOfWeek.isNotEmpty) {
+      final dow0 = base.weekday % 7; // Mon=1..Sun=7 → 0..6
+      if (!daysOfWeek.contains(dow0)) continue;
+    }
+
+    for (final t in times) {
+      final parts = t.split(':');
+      if (parts.length != 2) continue;
+      final hh = int.tryParse(parts[0]) ?? 0;
+      final mm = int.tryParse(parts[1]) ?? 0;
+      final sched = DateTime(base.year, base.month, base.day, hh, mm);
+
+      final key    = '${m.id}_${DateFormat('yyyyMMdd').format(base)}_$t';
       final doseId = sha1.convert(utf8.encode(key)).toString();
 
       batch.set(dosesRef.doc(doseId), {
