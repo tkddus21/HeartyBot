@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import 'chat_screen.dart';
 import 'diary_screen.dart';
 import 'medication_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -21,6 +23,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _selectedDay = _focusedDay;
+    ensureTodayDoses(FirebaseAuth.instance.currentUser!.uid); // 오늘 날짜 체크리스트 생성 보장
   }
 
   String _getGreeting() {
@@ -44,58 +47,136 @@ class _HomeScreenState extends State<HomeScreen> {
     return DateFormat('yyyy-MM-dd').format(date);
   }
 
-  Widget _buildMedicationStatusCard() {
-    final selectedDateStr = _formatDate(_selectedDay ?? DateTime.now());
-    return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('medications').snapshots(),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return Card(child: Padding(padding: EdgeInsets.all(16), child: Text('데이터 로딩 중...')));
-        }
-        final meds = snapshot.data!.docs.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final start = data['startDate'];
-          final end = data['endDate'];
-          return start != null && end != null &&
-              selectedDateStr.compareTo(start) >= 0 &&
-              selectedDateStr.compareTo(end) <= 0;
-        }).toList();
-        final allTaken = meds.every((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          return data['taken'] == true;
-        });
-        return Card(
-          margin: EdgeInsets.zero,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
+Widget _buildMedicationStatusCard() {
+  final uid = FirebaseAuth.instance.currentUser!.uid;
+
+  final selected = _selectedDay ?? DateTime.now();
+  final dayId = DateFormat('yyyy-MM-dd').format(selected);
+
+  final dosesRef = FirebaseFirestore.instance
+      .collection('users')
+      .doc(uid)
+      .collection('days')
+      .doc(dayId)
+      .collection('doses');
+
+  return Card(
+    margin: EdgeInsets.zero,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    elevation: 1,
+    child: Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: dosesRef.orderBy('scheduledAt').snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SizedBox(
+              height: 120,
+              child: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final docs = snapshot.data?.docs ?? const [];
+          if (docs.isEmpty) {
+            final isToday = DateUtils.isSameDay(selected, DateTime.now());
+            return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("약 복용: ${meds.isEmpty ? '데이터 없음' : (allTaken ? '✅ 완료' : '❌ 미복용')}"),
-                SizedBox(height: 12),
-                ...meds.map((doc) {
-                  final med = doc.data() as Map<String, dynamic>;
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: Row(
-                      children: [
-                        Icon(
-                          med['taken'] == true ? Icons.check_circle : Icons.cancel,
-                          color: med['taken'] == true ? Colors.green : Colors.red,
-                        ),
-                        SizedBox(width: 8),
-                        Expanded(child: Text("${med['name']} (${med['time']})")),
-                      ],
-                    ),
-                  );
-                }).toList(),
+                Text('약 복용', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 8),
+                Text(isToday ? '오늘 복용할 약이 없습니다.' : '해당 날짜에 복용 일정이 없습니다.'),
+                if (isToday) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      await ensureTodayDoses(uid);
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('오늘 체크리스트 생성/새로고침'),
+                  ),
+                ],
               ],
-            ),
-          ),
-        );
-      },
-    );
-  }
+            );
+          }
+
+          final total = docs.length;
+          final taken = docs.where((d) => (d.data()['status'] == 'taken')).length;
+          final progress = total == 0 ? 0.0 : taken / total;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('약 복용', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+
+              // 진행률
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(minHeight: 8, value: progress),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('$taken / $total'),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // 리스트 (체크 토글 → Firestore 반영)
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: docs.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final d = docs[i];
+                  final data = d.data();
+                  final medName = (data['medName'] ?? '') as String;
+                  final status = (data['status'] ?? 'pending') as String;
+                  final isTaken = status == 'taken';
+                  final sched = (data['scheduledAt'] as Timestamp?)?.toDate();
+                  final label = sched != null ? DateFormat('HH:mm').format(sched) : '-';
+
+                  final overdue = !isTaken &&
+                      sched != null &&
+                      DateTime.now().isAfter(sched.add(const Duration(minutes: 30)));
+
+                  return CheckboxListTile(
+                    value: isTaken,
+                    onChanged: (v) async {
+                      await d.reference.update({
+                        'status': v == true ? 'taken' : 'pending',
+                        'takenAt': v == true ? FieldValue.serverTimestamp() : null,
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      });
+                    },
+                    controlAffinity: ListTileControlAffinity.leading,
+                    secondary: Text(
+                      label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: overdue ? Colors.redAccent : null,
+                      ),
+                    ),
+                    title: Text(medName, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    subtitle: overdue
+                        ? const Text('예정 시간 경과', style: TextStyle(color: Colors.redAccent))
+                        : null,
+                  );
+                },
+              ),
+            ],
+          );
+        },
+      ),
+    ),
+  );
+}
+
+
 
   Widget _buildHomeBody() {
     return SingleChildScrollView(
