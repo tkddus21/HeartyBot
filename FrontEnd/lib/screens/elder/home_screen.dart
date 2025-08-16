@@ -6,8 +6,8 @@ import 'chat_screen.dart';
 import 'diary_screen.dart';
 import 'medication_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:async'; // 파일 상단
 
-// medication_screen.dart에 ensureDosesForDate/ensureTodayDoses 가 정의되어 있어야 합니다.
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -19,14 +19,38 @@ class _HomeScreenState extends State<HomeScreen> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   CalendarFormat _calendarFormat = CalendarFormat.week;
+  StreamSubscription? _medsSub;
+  Timer? _recomputeDebounce;
 
   @override
   void initState() {
     super.initState();
-    _selectedDay = _focusedDay;
-    // 시작 시 현재 포커스된 날짜(오늘)에 대해 체크리스트 생성 보장
+    _selectedDay = _focusedDay;     
     final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    // 시작 시 포커스 날짜 생성 보장
     ensureDosesForDate(uid, _focusedDay);
+
+    // 약 목록 변화를 구독 → 선택한 날짜 재계산 (디바운스)
+    final medsRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('medications');
+
+    _medsSub = medsRef.snapshots().listen((_) {
+      _recomputeDebounce?.cancel();
+      _recomputeDebounce = Timer(const Duration(milliseconds: 300), () {
+        final day = _selectedDay ?? DateTime.now();
+        recomputeDosesForDate(uid, day);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _recomputeDebounce?.cancel();
+    _medsSub?.cancel();
+    super.dispose();
   }
 
   String _getGreeting() {
@@ -219,7 +243,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 });
                 // 선택된 날짜용 체크리스트 생성 보장
                 final uid = FirebaseAuth.instance.currentUser!.uid;
-                await ensureDosesForDate(uid, selectedDay);
+                await recomputeDosesForDate(uid, selectedDay); // 변경 사항 반영
               },
               calendarStyle: CalendarStyle(
                 selectedDecoration:

@@ -313,6 +313,9 @@ class _MedicationScreenState extends State<MedicationScreen> {
                             )),
                             'updatedAt': FieldValue.serverTimestamp(),
                           });
+
+                          await recomputeDosesForDate(_uid, DateTime.now());
+
                           if (mounted) Navigator.pop(context);
                         },
                         child: const Text('저장',
@@ -908,7 +911,6 @@ Future<void> ensureTodayDoses(String uid) async {
     }
   }
 
-  // ✅ 빠져 있던 커밋 + 함수 닫기
   await batch.commit();
 }
 
@@ -995,4 +997,37 @@ Future<void> ensureDosesForDate(String uid, DateTime day) async {
   }
 
   await batch.commit();
+}
+
+/// 선택한 날짜의 doses를 모두 지우고, 현재 medication 정의로 다시 생성
+Future<void> recomputeDosesForDate(String uid, DateTime day) async {
+  final db = FirebaseFirestore.instance;
+  final base  = DateTime(day.year, day.month, day.day);
+  final dayId = DateFormat('yyyy-MM-dd').format(base);
+
+  final dosesRef = db
+      .collection('users')
+      .doc(uid)
+      .collection('days')
+      .doc(dayId)
+      .collection('doses');
+
+  // 1) 기존 doses 삭제 (배치로 chunk 처리)
+  var snap = await dosesRef.get();
+  if (snap.docs.isNotEmpty) {
+    WriteBatch b = db.batch();
+    int count = 0;
+    for (final d in snap.docs) {
+      b.delete(d.reference);
+      count++;
+      if (count % 450 == 0) {
+        await b.commit();
+        b = db.batch();
+      }
+    }
+    await b.commit();
+  }
+
+  // 2) 최신 medication 기준으로 다시 생성
+  await ensureDosesForDate(uid, base);
 }
