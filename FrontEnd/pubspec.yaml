@@ -45,6 +45,7 @@ flutter:
   assets:
     - assets/logo.jpg
     - assets/google.logo.png
+    - assets/mascot2.jpg
 
   fonts:
     - family: NanumGothic
