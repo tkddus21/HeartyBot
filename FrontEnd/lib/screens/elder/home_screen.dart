@@ -102,14 +102,15 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0),
         child: Column(
-          // 🔧 crossAxisAlignment를 제거하여 자식 위젯들이 중앙 정렬되도록 합니다.
           children: [
             SizedBox(height: 20),
             Row(
-              // 🔧 mainAxisAlignment를 center로 설정하여 중앙 정렬합니다.
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                CircleAvatar(radius: 30, backgroundColor: Colors.grey[300]),
+                CircleAvatar(
+                  radius: 30,
+                  backgroundImage: AssetImage('assets/mascot2.jpg'),
+                ),
                 SizedBox(width: 12),
                 Flexible(
                   child: Text(_getGreeting(), style: TextStyle(fontSize: 16)),
@@ -127,6 +128,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 CalendarFormat.week: 'Week',
                 CalendarFormat.month: 'Month',
               },
+              // 🔧 요일 표시 부분의 높이를 늘려 글자가 잘리지 않게 합니다.
+              daysOfWeekHeight: 22.0,
               onFormatChanged: (format) {
                 if (_calendarFormat != format) {
                   setState(() {
@@ -141,9 +144,32 @@ class _HomeScreenState extends State<HomeScreen> {
                   _focusedDay = focusedDay;
                 });
               },
+              calendarBuilders: CalendarBuilders(
+                dowBuilder: (context, day) {
+                  switch (day.weekday) {
+                    case DateTime.sunday:
+                      return Center(child: Text('일', style: TextStyle(color: Colors.red)));
+                    case DateTime.saturday:
+                      return Center(child: Text('토', style: TextStyle(color: Colors.blue)));
+                    default:
+                      return Center(child: Text(DateFormat.E('ko_KR').format(day)));
+                  }
+                },
+                defaultBuilder: (context, day, focusedDay) {
+                  switch (day.weekday) {
+                    case DateTime.sunday:
+                      return Center(child: Text('${day.day}', style: TextStyle(color: Colors.red)));
+                    case DateTime.saturday:
+                      return Center(child: Text('${day.day}', style: TextStyle(color: Colors.blue)));
+                    default:
+                      return null;
+                  }
+                },
+              ),
               calendarStyle: CalendarStyle(
                 selectedDecoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle),
                 todayDecoration: BoxDecoration(color: Colors.deepPurple.shade200, shape: BoxShape.circle),
+                weekendTextStyle: TextStyle(color: Colors.red),
               ),
               headerStyle: HeaderStyle(
                 formatButtonVisible: false,
@@ -178,9 +204,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        // 🔧 AppBar를 다시 기본 스타일로 되돌리고 제목을 추가합니다.
         title: Text('또바기'),
-        centerTitle: true, // 제목을 중앙에配置
+        centerTitle: true,
         leading: IconButton(
           icon: Icon(Icons.settings),
           onPressed: () => Navigator.pushNamed(context, '/settings'),

@@ -20,6 +20,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   String? _audioPath;
   bool _isRecording = false;
+  bool _isLoading = false; // 🔧 로딩 상태 추가
 
   @override
   void dispose() {
@@ -27,67 +28,84 @@ class _DiaryScreenState extends State<DiaryScreen> {
     super.dispose();
   }
 
-  /// 감정 분석 (UI 표시 X, 저장만)
-  String _analyzeEmotion(String text) {
-    if (text.contains("우울") || text.contains("힘들어")) {
-      return '슬픔';
-    } else if (text.contains("행복") || text.contains("좋아")) {
-      return '기쁨';
-    } else {
-      return '중립';
+  /// 🔧 감정 분석 (API 호출)
+  Future<Map<String, String>> _fetchEmotionAnalysis(String text) async {
+    final url = Uri.parse('http://10.0.2.2:8000/emotion'); // 에뮬레이터용 주소
+    try {
+      final res = await http.post(
+        url,
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"user_input": text}),
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(res.bodyBytes));
+        return {
+          'emotion': data['emotion'] ?? '중립',
+          'reason': data['reason'] ?? '분석 불가',
+        };
+      } else {
+        return {'emotion': '오류', 'reason': '서버 오류: ${res.statusCode}'};
+      }
+    } catch (e) {
+      return {'emotion': '오류', 'reason': '네트워크 오류: $e'};
     }
   }
 
-  /// 일기 저장 (Firestore) 
- void _saveDiary() async {
-  final text = _diaryController.text.trim();
-  if (text.isEmpty) return;
+  /// 일기 저장 (Firestore)
+  void _saveDiary() async {
+    final text = _diaryController.text.trim();
+    if (text.isEmpty) return;
 
-  final emotion = _analyzeEmotion(text);
+    setState(() => _isLoading = true);
 
-  try {
-    final user = await _ensureAuth();           // ✅ 로그인 보장
-    final uid = user.uid;
+    try {
+      // 🔧 API를 호출하여 감정 분석 결과를 받아옵니다.
+      final emotionData = await _fetchEmotionAnalysis(text);
+      final emotion = emotionData['emotion'];
+      final reason = emotionData['reason'];
 
-    final userDoc = FirebaseFirestore.instance.collection('users').doc(uid);
-    final diaryRef = userDoc.collection('diaries').doc(); // auto id
+      final user = await _ensureAuth();
+      final uid = user.uid;
 
-    final batch = FirebaseFirestore.instance.batch();
+      final userDoc = FirebaseFirestore.instance.collection('users').doc(uid);
+      final diaryRef = userDoc.collection('diaries').doc();
 
-    batch.set(diaryRef, {
-      'text': text,
-      'emotion': emotion,
-      'createdAt': FieldValue.serverTimestamp(),  // ✅ createdAt로 통일
-      'updatedAt': FieldValue.serverTimestamp(),
-      // 'audioUrl': '...'(나중에 Storage 붙이면 여기)
-      // 'tags': [],
-    });
+      final batch = FirebaseFirestore.instance.batch();
 
-    // 선택: 유저 요약 필드 업데이트
-    batch.update(
-      userDoc,
-      {
-        'lastDiaryAt': FieldValue.serverTimestamp(),
-        'diaryCount': FieldValue.increment(1),
-      },
-    );
+      batch.set(diaryRef, {
+        'text': text,
+        'emotion': emotion, // API로 분석된 감정
+        'emotion_reason': reason, // API로 분석된 이유
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 
+      batch.update(
+        userDoc,
+        {
+          'lastDiaryAt': FieldValue.serverTimestamp(),
+          'diaryCount': FieldValue.increment(1),
+        },
+      );
 
-    await batch.commit();
+      await batch.commit();
 
-    _diaryController.clear();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("일기가 저장되었습니다")),
-    );
-  } catch (e) {
-    debugPrint("일기 저장 실패: $e");
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("저장 실패: $e")),
-    );
+      _diaryController.clear();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("일기가 저장되었습니다")),
+      );
+    } catch (e) {
+      debugPrint("일기 저장 실패: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("저장 실패: $e")),
+      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
-}
 
   Future<User> _ensureAuth() async {
     final auth = FirebaseAuth.instance;
@@ -96,7 +114,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
       final cred = await auth.signInAnonymously();
       user = cred.user!;
     }
-    return user!;
+    return user;
   }
 
   /// 🔹 녹음 시작/중지 토글
@@ -141,6 +159,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
 
   /// 🔹 FastAPI 서버에 음성 업로드
   Future<void> _uploadAudio(File audioFile) async {
+    setState(() => _isLoading = true);
     final uri = Uri.parse('http://10.0.2.2:8000/transcribe');
     final request = http.MultipartRequest('POST', uri)
       ..files.add(await http.MultipartFile.fromPath(
@@ -153,9 +172,6 @@ class _DiaryScreenState extends State<DiaryScreen> {
       final response = await request.send();
       final respStr = await response.stream.bytesToString();
 
-      debugPrint('HTTP ${response.statusCode}');
-      debugPrint('BODY(len=${respStr.length}): ${respStr.substring(0, respStr.length.clamp(0, 200))}');
-
       if (response.statusCode != 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('서버 오류: ${response.statusCode}')),
@@ -163,17 +179,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
         return;
       }
 
-      Map<String, dynamic> data;
-      try {
-        data = jsonDecode(respStr) as Map<String, dynamic>;
-      } catch (e) {
-        debugPrint('❌ JSON 파싱 실패: $e');
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('서버 응답 형식이 올바르지 않습니다.')),
-        );
-        return;
-      }
-
+      final data = jsonDecode(respStr) as Map<String, dynamic>;
       final newText = (data['text'] ?? '').toString();
       final before = _diaryController.text;
       final combined = before.isEmpty ? newText : '$before\n$newText';
@@ -182,18 +188,14 @@ class _DiaryScreenState extends State<DiaryScreen> {
       setState(() {
         _diaryController.text = combined;
       });
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        _diaryController.selection = TextSelection.fromPosition(
-          TextPosition(offset: _diaryController.text.length),
-        );
-      });
 
     } catch (e) {
       debugPrint('❌ 업로드 실패: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('네트워크/업로드 오류가 발생했습니다.')),
       );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -231,23 +233,29 @@ class _DiaryScreenState extends State<DiaryScreen> {
               ),
             ),
             SizedBox(height: 16),
+            if (_isLoading) // 🔧 로딩 중일 때 인디케이터 표시
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16.0),
+                child: CircularProgressIndicator(),
+              ),
             Row(
               children: [
                 ElevatedButton.icon(
-                  onPressed: _toggleRecording,
+                  onPressed: _isLoading ? null : _toggleRecording,
                   icon: Icon(_isRecording ? Icons.mic_off : Icons.mic),
                   label: Text(_isRecording ? "녹음 중지" : "음성 녹음"),
                 ),
                 SizedBox(width: 16),
-                Text(
-                  _isRecording ? "녹음 중..." : "",
-                  style: TextStyle(color: Colors.red),
-                ),
+                if (_isRecording)
+                  Text(
+                    "녹음 중...",
+                    style: TextStyle(color: Colors.red),
+                  ),
               ],
             ),
             SizedBox(height: 16),
             ElevatedButton.icon(
-              onPressed: _saveDiary,
+              onPressed: _isLoading ? null : _saveDiary,
               icon: Icon(Icons.save),
               label: Text("일기 저장하기"),
               style: ElevatedButton.styleFrom(

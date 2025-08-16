@@ -247,7 +247,7 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  // 🔧 기능 버튼들을 보여주는 위젯
+  // 기능 버튼들을 보여주는 위젯
   Widget _buildMessageOptions(String text, bool isUser) {
     return Container(
       margin: isUser
@@ -360,7 +360,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// 말풍선 UI를 위한 별도의 위젯
+// 🔧 말풍선 UI를 위한 별도의 위젯 (onTap 제거)
 class MessageBubble extends StatelessWidget {
   final String text;
   final bool isUser;
@@ -381,8 +381,7 @@ class MessageBubble extends StatelessWidget {
         children: [
           if (!isUser) ...[
             CircleAvatar(
-              child: Icon(Icons.support_agent),
-              backgroundColor: Colors.grey.shade300,
+              backgroundImage: AssetImage('assets/mascot2.jpg'),
             ),
             SizedBox(width: 8),
           ],
@@ -407,7 +406,7 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
-// 🔧 기능 버튼을 위한 작은 위젯 (라벨 제거)
+// 기능 버튼을 위한 작은 위젯 (라벨 제거)
 class _OptionButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
@@ -422,10 +421,10 @@ class _OptionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(20), // 원형 터치 효과
+      borderRadius: BorderRadius.circular(20),
       child: Padding(
-        padding: const EdgeInsets.all(6), // 패딩 조정
-        child: Icon(icon, size: 18, color: Colors.black54), // 아이콘 크기 조정
+        padding: const EdgeInsets.all(6),
+        child: Icon(icon, size: 18, color: Colors.black54),
       ),
     );
   }
