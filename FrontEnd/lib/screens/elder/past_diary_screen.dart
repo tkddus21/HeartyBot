@@ -1,7 +1,7 @@
 // past_diary_screen.dart
+import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class PastDiaryScreen extends StatelessWidget {
@@ -12,6 +12,7 @@ class PastDiaryScreen extends StatelessWidget {
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
   Stream<QuerySnapshot<Map<String, dynamic>>> _stream() {
+    //  users/{uid}/diaries 에서 createdAt 내림차순
     return FirebaseFirestore.instance
         .collection('users')
         .doc(_uid)
@@ -26,40 +27,36 @@ class PastDiaryScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('이전 감정 일기')),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: _stream(),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (snap.hasError) {
-            return Center(child: Text('불러오기 오류: ${snap.error}'));
+          if (snapshot.hasError) {
+            return Center(child: Text('불러오기 오류: ${snapshot.error}'));
           }
-          final docs = snap.data?.docs ?? [];
+          final docs = snapshot.data?.docs ?? [];
           if (docs.isEmpty) {
-            return const Center(child: Text('저장된 일기가 없어요.'));
+            return const Center(child: Text('저장된 일기가 없습니다.'));
           }
 
           return ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
             itemCount: docs.length,
             separatorBuilder: (_, __) => const SizedBox(height: 8),
+            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
             itemBuilder: (context, i) {
               final d = docs[i].data();
-              final id = docs[i].id;
               final text = (d['text'] ?? '') as String;
               final emotion = (d['emotion'] ?? '') as String;
-              final reason = (d['emotion_reason'] ?? '') as String;
               final ts = d['createdAt'];
               final created =
-              (ts is Timestamp) ? ts.toDate() : null; // serverTimestamp 직후 null 가능
+              (ts is Timestamp) ? ts.toDate() : null; // serverTimestamp 직후 null일 수 있음
+              final dateStr = (created == null) ? '저장 중…' : _fmt.format(created);
 
               return Card(
                 elevation: 1.5,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 child: ListTile(
-                  contentPadding:
-                  const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  leading: const Icon(Icons.message),
                   title: Text(
                     text.isEmpty ? '(내용 없음)' : text.split('\n').first,
                     maxLines: 1,
@@ -70,29 +67,17 @@ class PastDiaryScreen extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 4),
-                      Text(
-                        created == null ? '저장 중…' : _fmt.format(created),
-                        style: const TextStyle(color: Colors.grey),
-                      ),
+                      Text(dateStr, style: const TextStyle(color: Colors.grey)),
                       if (emotion.isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text('감정: $emotion'),
                       ],
-                      if (reason.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          reason,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
                     ],
                   ),
                   onTap: () {
-                    Navigator.push(
-                      context,
+                    Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => DiaryDetailScreen(diaryId: id),
+                        builder: (_) => DiaryDetailScreen(diaryId: docs[i].id),
                       ),
                     );
                   },
@@ -106,7 +91,7 @@ class PastDiaryScreen extends StatelessWidget {
   }
 }
 
-// 상세보기(선택)
+//상세보기
 class DiaryDetailScreen extends StatelessWidget {
   final String diaryId;
   const DiaryDetailScreen({super.key, required this.diaryId});
@@ -135,7 +120,6 @@ class DiaryDetailScreen extends StatelessWidget {
           final d = snap.data!.data()!;
           final text = (d['text'] ?? '') as String;
           final emotion = (d['emotion'] ?? '') as String;
-          final reason = (d['emotion_reason'] ?? '') as String;
           final ts = d['createdAt'];
           final created =
           (ts is Timestamp) ? ts.toDate() : DateTime.fromMillisecondsSinceEpoch(0);
@@ -149,12 +133,7 @@ class DiaryDetailScreen extends StatelessWidget {
                     style: const TextStyle(color: Colors.grey)),
                 const SizedBox(height: 8),
                 if (emotion.isNotEmpty)
-                  Text('감정: $emotion',
-                      style: const TextStyle(fontWeight: FontWeight.w600)),
-                if (reason.isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(reason),
-                ],
+                  Text('감정: $emotion', style: const TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 16),
                 Expanded(
                   child: SingleChildScrollView(
