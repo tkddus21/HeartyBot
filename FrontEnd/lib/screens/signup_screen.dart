@@ -55,84 +55,106 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-  void _signup() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
-    final confirmPassword = _confirmPasswordController.text.trim();
-    final name = _nameController.text.trim();
+void _signup() async {
+  final email = _emailController.text.trim();
+  final password = _passwordController.text.trim();
+  final confirmPassword = _confirmPasswordController.text.trim();
+  final name = _nameController.text.trim();
 
-    if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('이름을 입력해주세요.')),
-      );
-      return;
-    }
-    if (_birthDate == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('생년월일을 선택해주세요.')),
-      );
-      return;
-    }
-    if (password != confirmPassword) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-
-    try {
-      final cred = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
-
-      final uid = cred.user!.uid;
-
-      // 생년월일 문자열(표시용)
-      final bd = _birthDate!;
-      final bdStr =
-          '${bd.year.toString().padLeft(4, '0')}-'
-          '${bd.month.toString().padLeft(2, '0')}-'
-          '${bd.day.toString().padLeft(2, '0')}';
-
-      final data = {
-        'email': email,
-        'userType': _userType,
-        'name': name,
-        'birthDate': bd,             // Timestamp로 저장됨
-        'birthDateString': bdStr,    // 표시용
-        'phone': _phoneController.text.trim(),
-        'address': _addressController.text.trim(),
-        'createdAt': FieldValue.serverTimestamp(),
-      };
-
-      if (_userType == '보호자') {
-        data['elderEmail'] = _extraInfoController.text.trim();
-      } else if (_userType == '복지사') {
-        data['orgName'] = _extraInfoController.text.trim();
-      }
-
-      await FirebaseFirestore.instance.collection('users').doc(uid).set(data);
-
-      // ✅ 가입 직후 자동 로그인 상태 해제
-      await FirebaseAuth.instance.signOut();
-
-      // ✅ 로그인 화면으로 이동하면서 이메일 프리필 전달
-      if (!mounted) return;
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        '/login',
-            (route) => false,
-        arguments: {'prefillEmail': email},
-      );
-    } on FirebaseAuthException catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.message ?? '회원가입 실패')),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
+  if (name.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('이름을 입력해주세요.')),
+    );
+    return;
   }
+  if (_birthDate == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('생년월일을 선택해주세요.')),
+    );
+    return;
+  }
+  if (password != confirmPassword) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
+    );
+    return;
+  }
+
+  setState(() => _isLoading = true);
+
+  try {
+    final cred = await FirebaseAuth.instance
+        .createUserWithEmailAndPassword(email: email, password: password);
+
+    final uid = cred.user!.uid;
+
+    // 생년월일 문자열(표시용)
+    final bd = _birthDate!;
+    final bdStr =
+        '${bd.year.toString().padLeft(4, '0')}-'
+        '${bd.month.toString().padLeft(2, '0')}-'
+        '${bd.day.toString().padLeft(2, '0')}';
+
+    // Firestore에 저장할 기본 데이터
+    final data = {
+      'uid': uid,
+      'email': email.trim().toLowerCase(), // 이메일은 소문자로 정규화 권장
+      'userType': _userType,
+      'name': name,
+      'birthDate': bd,          // Timestamp로 저장됨
+      'birthDateString': bdStr, // 표시용
+      'phone': _phoneController.text.trim(),
+      'address': _addressController.text.trim(),
+      'createdAt': FieldValue.serverTimestamp(),
+    };
+
+    if (_userType == '보호자') {
+      data['elderEmail'] = _extraInfoController.text.trim().toLowerCase();
+    } else if (_userType == '복지사') {
+      data['orgName'] = _extraInfoController.text.trim();
+    }
+
+    final fs = FirebaseFirestore.instance;
+    final batch = fs.batch();
+
+    // users/{uid}
+    final userDoc = fs.collection('users').doc(uid);
+    batch.set(userDoc, data);
+
+    // ✅ 노인 가입 시: email_index/{email} → { uid } 추가
+    if (_userType == '노인') {
+      final emailKey = email.trim().toLowerCase();
+      final idxDoc = fs.collection('email_index').doc(emailKey);
+      batch.set(idxDoc, {'uid': uid});
+    }
+
+    await batch.commit();
+
+    // (선택) 보호자일 때, 가입 시점에 elderEmail을 입력했다면
+    // 여기서 email_index를 조회해 elderUid를 바로 연결하는 로직을 추가할 수도 있음.
+    // 하지만 보통은 "연결" 화면에서 별도로 처리.
+
+    //  가입 직후 자동 로그아웃
+    await FirebaseAuth.instance.signOut();
+
+    //  로그인 화면으로 이동 (이메일 프리필)
+    if (!mounted) return;
+    Navigator.pushNamedAndRemoveUntil(
+      context,
+      '/login',
+      (route) => false,
+      arguments: {'prefillEmail': email},
+    );
+    
+  } on FirebaseAuthException catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.message ?? '회원가입 실패')),
+    );
+  } finally {
+    setState(() => _isLoading = false);
+  }
+}
+
 
   Widget _buildExtraField() {
     if (_userType == '보호자') {
