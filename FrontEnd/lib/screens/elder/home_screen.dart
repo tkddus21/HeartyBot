@@ -43,18 +43,23 @@ class _HomeScreenState extends State<HomeScreen> {
     _selectedDay = _focusedDay;
 
     final uid = FirebaseAuth.instance.currentUser!.uid;
-    ensureDosesForDate(uid, _focusedDay); // 시작 시 포커스 날짜 생성 보장
+    // 시작 시 포커스 날짜 동기화(없으면 생성)
+    syncDosesForDate(uid, _focusedDay);
 
-    // 약 목록 변화 → 선택 날짜 도즈 재계산(디바운스)
+    // 약 목록 변화 → 선택 날짜 도즈 비파괴 동기화(디바운스)
     final medsRef = FirebaseFirestore.instance
         .collection('users')
         .doc(uid)
         .collection('medications');
 
-    _medsSub = medsRef.snapshots().listen((_) {
+    _medsSub = medsRef.snapshots().listen((snap) {
+      // 로컬 pendingWrites에 의한 흔들림은 무시(선택사항)
+      if (snap.metadata.hasPendingWrites) return;
       _recomputeDebounce?.cancel();
       _recomputeDebounce = Timer(const Duration(milliseconds: 300), () {
-        recomputeDosesForDate(uid, _selectedDay ?? DateTime.now());
+        final targetDay = _selectedDay ?? DateTime.now();
+        // 과거/오늘도 보존을 원하므로 조건 없이 동기화 (삭제 없음)
+        syncDosesForDate(uid, targetDay);
       });
     });
 
@@ -152,11 +157,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 firstDay: DateTime.utc(2020, 1, 1),
                 lastDay: DateTime.utc(2035, 12, 31),
                 focusedDay: _focusedDay,
+
+                // ✅ 주/월 전환 허용 (위/아래 스와이프로 변경)
                 calendarFormat: _calendarFormat,
                 availableCalendarFormats: const {
                   CalendarFormat.week: 'Week',
                   CalendarFormat.month: 'Month',
                 },
+                availableGestures: AvailableGestures.all, // 위/아래: 형식 전환, 좌/우: 달 이동
+
+                // ✅ 요일 헤더 잘리면 높이 늘리기 (선택)
+                daysOfWeekHeight: 22.0,
+
                 onFormatChanged: (format) {
                   if (_calendarFormat != format) {
                     setState(() => _calendarFormat = format);
@@ -168,16 +180,51 @@ class _HomeScreenState extends State<HomeScreen> {
                     _selectedDay = selectedDay;
                     _focusedDay = focusedDay;
                   });
-                  // 선택된 날짜 체크리스트 재계산
                   final uid = FirebaseAuth.instance.currentUser!.uid;
-                  await recomputeDosesForDate(uid, selectedDay);
+                  await syncDosesForDate(uid, selectedDay); // ✅ 비파괴 동기화
                 },
-                calendarStyle: CalendarStyle(
-                  selectedDecoration:
-                  const BoxDecoration(color: _brandPurple, shape: BoxShape.circle),
-                  todayDecoration:
-                  BoxDecoration(color: _brandPurple.withOpacity(0.5), shape: BoxShape.circle),
+
+                // ✅ 주말 색상 지정 (요일 헤더 + 날짜 셀)
+                calendarBuilders: CalendarBuilders(
+                  // 요일 헤더(일~토)
+                  dowBuilder: (context, day) {
+                    switch (day.weekday) {
+                      case DateTime.sunday:
+                        return const Center(child: Text('일', style: TextStyle(color: Colors.red)));
+                      case DateTime.saturday:
+                        return const Center(child: Text('토', style: TextStyle(color: Colors.blue)));
+                      default:
+                        return Center(child: Text(DateFormat.E('ko_KR').format(day)));
+                    }
+                  },
+                  // 날짜 셀(숫자)
+                  defaultBuilder: (context, day, focusedDay) {
+                    switch (day.weekday) {
+                      case DateTime.sunday:
+                        return Center(child: Text('${day.day}', style: const TextStyle(color: Colors.red)));
+                      case DateTime.saturday:
+                        return Center(child: Text('${day.day}', style: const TextStyle(color: Colors.blue)));
+                      default:
+                        return null; // 기본 렌더링 사용
+                    }
+                  },
                 ),
+
+                calendarStyle: CalendarStyle(
+                  selectedDecoration: const BoxDecoration(
+                    color: _brandPurple,
+                    shape: BoxShape.circle,
+                  ),
+                  todayDecoration: BoxDecoration(
+                    color: _brandPurple.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  // 참고: 아래 weekendTextStyle은 defaultBuilder가 있으면 덮어써집니다.
+                  weekendTextStyle: const TextStyle(color: Colors.red),
+                  // 필요 시 월간에서 다른 달 날짜 숨기기
+                  // outsideDaysVisible: false,
+                ),
+
                 headerStyle: const HeaderStyle(
                   formatButtonVisible: false,
                   titleCentered: true,
@@ -185,6 +232,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+
             const SizedBox(height: 16),
 
             // 약 복용 카드
@@ -216,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final notiIcon =
-    _notificationsEnabled ? Icons.notifications : Icons.notifications_off;
+        _notificationsEnabled ? Icons.notifications : Icons.notifications_off;
 
     return Scaffold(
       appBar: AppBar(
@@ -311,7 +359,7 @@ class _MedicationStatusCard extends StatelessWidget {
                   ),
                   onPressed: () async {
                     final uid = FirebaseAuth.instance.currentUser!.uid;
-                    await ensureDosesForDate(uid, day);
+                    await syncDosesForDate(uid, day); // ✅ 비파괴 동기화(없으면 생성)
                   },
                   icon: const Icon(Icons.refresh),
                   label: Text('${fmtDate(day)} 체크리스트 생성'),
@@ -397,15 +445,15 @@ class _MedicationStatusCard extends StatelessWidget {
   }
 
   static Widget _cardHeader(String title) => Row(
-    children: [
-      const Icon(Icons.medication_liquid, color: _brandPurple, size: 20),
-      const SizedBox(width: 6),
-      Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-    ],
-  );
+        children: [
+          const Icon(Icons.medication_liquid, color: _brandPurple, size: 20),
+          const SizedBox(width: 6),
+          Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        ],
+      );
 }
 
-/// ====== 유틸 & 특정 날짜 도즈 생성/재계산 ======
+/// ====== 유틸 & 특정 날짜 도즈 생성/비파괴 동기화 ======
 
 String _dayId(DateTime d) => DateFormat('yyyy-MM-dd').format(d);
 
@@ -416,7 +464,7 @@ bool _isWithinDay(DateTime day, DateTime start, DateTime end) {
   return !d.isBefore(s) && !d.isAfter(e);
 }
 
-/// 선택한 날짜의 doses를 보장(없으면 생성)
+/// 선택한 날짜의 doses를 보장(없으면 생성: 최초 1회)
 Future<void> ensureDosesForDate(String uid, DateTime day) async {
   final db = FirebaseFirestore.instance;
   final dayId = _dayId(day);
@@ -438,6 +486,7 @@ Future<void> ensureDosesForDate(String uid, DateTime day) async {
   batch.set(dayRef, {
     'date': dayId,
     'createdAt': FieldValue.serverTimestamp(),
+    'updatedAt': FieldValue.serverTimestamp(),
   }, SetOptions(merge: true));
 
   for (final m in medsSnap.docs) {
@@ -482,26 +531,126 @@ Future<void> ensureDosesForDate(String uid, DateTime day) async {
   await batch.commit();
 }
 
-/// 선택한 날짜의 doses를 전부 지우고 다시 생성
-Future<void> recomputeDosesForDate(String uid, DateTime day) async {
+/// 선택한 날짜의 doses를 비파괴적으로 동기화
+/// - 예상 목록: upsert (status/takenAt 보존)
+/// - 예상에 없어진 기존 항목: **그대로 보존**(pending도 삭제하지 않음)
+Future<void> syncDosesForDate(String uid, DateTime day) async {
   final db = FirebaseFirestore.instance;
   final dayId = _dayId(day);
-  final dosesRef =
-  db.collection('users').doc(uid).collection('days').doc(dayId).collection('doses');
+  final dayRef = db.collection('users').doc(uid).collection('days').doc(dayId);
+  final dosesRef = dayRef.collection('doses');
 
-  final snap = await dosesRef.get();
-  if (snap.docs.isNotEmpty) {
-    WriteBatch b = db.batch();
-    int cnt = 0;
-    for (final d in snap.docs) {
-      b.delete(d.reference);
-      cnt++;
-      if (cnt % 450 == 0) {
-        await b.commit();
-        b = db.batch();
-      }
+  // day 문서 보장
+  await dayRef.set({'date': dayId, 'updatedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+
+  // 기존 doses 스냅샷
+  final existingSnap = await dosesRef.get();
+  final existingById = {for (final d in existingSnap.docs) d.id: d};
+
+  // 약 설정에서 “예상해야 하는 dose” 목록 계산
+  final medsSnap = await db
+      .collection('users')
+      .doc(uid)
+      .collection('medications')
+      .where('active', isEqualTo: true)
+      .get();
+
+  final expected = <String, Map<String, dynamic>>{};
+  for (final m in medsSnap.docs) {
+    final med = m.data();
+    final name = med['name'] as String? ?? '';
+    final times = (med['times'] as List?)?.cast<String>() ?? [];
+
+    final startAt = (med['startAt'] as Timestamp?)?.toDate();
+    final endAt   = (med['endAt']   as Timestamp?)?.toDate();
+    if (startAt == null || endAt == null) continue;
+
+    final d = DateTime(day.year, day.month, day.day);
+    final s = DateTime(startAt.year, startAt.month, startAt.day);
+    final e = DateTime(endAt.year, endAt.month, endAt.day);
+    if (d.isBefore(s) || d.isAfter(e)) continue;
+
+    final daysOfWeek = (med['daysOfWeek'] as List?)?.cast<int>() ?? [];
+    if (daysOfWeek.isNotEmpty) {
+      final dow0 = (day.weekday == DateTime.sunday) ? 0 : day.weekday; // Sun=0
+      if (!daysOfWeek.contains(dow0)) continue;
     }
-    await b.commit();
+
+    for (final t in times) {
+      final parts = t.split(':');
+      if (parts.length != 2) continue;
+      final hh = int.tryParse(parts[0]) ?? 0;
+      final mm = int.tryParse(parts[1]) ?? 0;
+      final sched = DateTime(day.year, day.month, day.day, hh, mm);
+
+      final key = '${m.id}_${DateFormat('yyyyMMdd').format(day)}_$t';
+      final doseId = sha1.convert(utf8.encode(key)).toString();
+
+      expected[doseId] = {
+        'medId': m.id,
+        'medName': name,
+        'scheduledAt': Timestamp.fromDate(sched),
+        'sourceKey': key,
+      };
+    }
   }
-  await ensureDosesForDate(uid, day);
+
+  // doses가 전혀 없다면 최초 생성 보장
+  if (existingById.isEmpty && expected.isNotEmpty) {
+    // 최초 생성은 ensure 로직과 동일
+    WriteBatch initBatch = db.batch();
+    int ops = 0;
+    expected.forEach((doseId, base) {
+      initBatch.set(dosesRef.doc(doseId), {
+        ...base,
+        'status': 'pending',
+        'takenAt': null,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (++ops % 450 == 0) {
+        initBatch.commit();
+        initBatch = db.batch();
+      }
+    });
+    await initBatch.commit();
+    return;
+  }
+
+  // 비파괴적 upsert
+  WriteBatch batch = db.batch();
+  int ops = 0;
+
+  // (a) 예상 중 존재 → 상태 보존하며 필드 갱신, 예상 중 미존재 → 신규 생성
+  expected.forEach((doseId, base) {
+    final ref = dosesRef.doc(doseId);
+    if (existingById.containsKey(doseId)) {
+      // 상태 보존: status/takenAt 미변경
+      batch.set(ref, {
+        'medId': base['medId'],
+        'medName': base['medName'],
+        'scheduledAt': base['scheduledAt'],
+        'sourceKey': base['sourceKey'],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    } else {
+      // 신규 추가
+      batch.set(ref, {
+        ...base,
+        'status': 'pending',
+        'takenAt': null,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    }
+    if (++ops % 450 == 0) {
+      batch.commit();
+      batch = db.batch();
+    }
+  });
+
+  // (b) 예상에 없어진 기존 항목: **그대로 보존**(삭제/상태 변경 없음)
+  // -> 아무 작업도 하지 않음
+
+  await batch.commit();
 }

@@ -285,13 +285,6 @@ class _ChatScreenState extends State<ChatScreen> {
         Container(color: _lightBg), // 은은한 배경
         Scaffold(
           backgroundColor: Colors.transparent,
-          appBar: AppBar(
-            title: const Text('또바기 챗봇'),
-            centerTitle: true,
-            elevation: 0,
-            backgroundColor: Colors.white,
-            foregroundColor: _brandPurple,
-          ),
           body: Column(
             children: [
               Expanded(
