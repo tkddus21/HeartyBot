@@ -4,7 +4,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'guardian_report_screen.dart';
 import 'guardian_emotion_diary_screen.dart';
 import 'guardian_medication_screen.dart';
-import 'guardian_alert_screen.dart';
 import '../settings_screen_second.dart';
 
 class HomeScreenGuardian extends StatefulWidget {
@@ -23,7 +22,6 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
     GuardianReportScreen(),
     GuardianEmotionDiaryScreen(),
     GuardianMedicationScreen(),
-    GuardianAlertScreen(),
   ];
 
   /// 보호자 → elderUid → 어르신 이름을 스트림으로 가져와 AppBar 제목 구성
@@ -90,7 +88,6 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: '홈'),
           BottomNavigationBarItem(icon: Icon(Icons.emoji_emotions), label: '감정'),
           BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: '약'),
-          BottomNavigationBarItem(icon: Icon(Icons.warning), label: '알림'),
         ],
       ),
     );
