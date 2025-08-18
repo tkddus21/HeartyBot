@@ -8,24 +8,27 @@ class SignupScreen extends StatefulWidget {
 }
 
 class _SignupScreenState extends State<SignupScreen> {
-  final _emailController = TextEditingController();
+  // 기존 컨트롤러
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
   final _phoneController = TextEditingController();
   final _addressController = TextEditingController();
   final _extraInfoController = TextEditingController();
-
-  // 추가: 이름 / 생년월일
   final _nameController = TextEditingController();
-  final _birthController = TextEditingController(); // 표시용
+  final _birthController = TextEditingController();
   DateTime? _birthDate;
+
+  // 🔧 이메일 입력을 위한 새로운 컨트롤러 및 변수
+  final _emailLocalPartController = TextEditingController();
+  final _emailDomainController = TextEditingController();
+  String _selectedDomain = 'naver.com';
+  final List<String> _domains = ['naver.com', 'gmail.com', 'hanmail.net', '직접입력'];
 
   String _userType = '노인';
   bool _isLoading = false;
 
   @override
   void dispose() {
-    _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _phoneController.dispose();
@@ -33,6 +36,8 @@ class _SignupScreenState extends State<SignupScreen> {
     _extraInfoController.dispose();
     _nameController.dispose();
     _birthController.dispose();
+    _emailLocalPartController.dispose();
+    _emailDomainController.dispose();
     super.dispose();
   }
 
@@ -55,122 +60,123 @@ class _SignupScreenState extends State<SignupScreen> {
     }
   }
 
-void _signup() async {
-  final email = _emailController.text.trim();
-  final password = _passwordController.text.trim();
-  final confirmPassword = _confirmPasswordController.text.trim();
-  final name = _nameController.text.trim();
+  void _signup() async {
+    // 🔧 이메일 주소 조합
+    final String domain = _selectedDomain == '직접입력'
+        ? _emailDomainController.text.trim()
+        : _selectedDomain;
+    final String email = '${_emailLocalPartController.text.trim()}@$domain';
 
-  if (name.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('이름을 입력해주세요.')),
-    );
-    return;
-  }
-  if (_birthDate == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('생년월일을 선택해주세요.')),
-    );
-    return;
-  }
-  if (password != confirmPassword) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
-    );
-    return;
-  }
+    final password = _passwordController.text.trim();
+    final confirmPassword = _confirmPasswordController.text.trim();
+    final name = _nameController.text.trim();
 
-  setState(() => _isLoading = true);
-
-  try {
-    final cred = await FirebaseAuth.instance
-        .createUserWithEmailAndPassword(email: email, password: password);
-
-    final uid = cred.user!.uid;
-
-    // 생년월일 문자열(표시용)
-    final bd = _birthDate!;
-    final bdStr =
-        '${bd.year.toString().padLeft(4, '0')}-'
-        '${bd.month.toString().padLeft(2, '0')}-'
-        '${bd.day.toString().padLeft(2, '0')}';
-
-    // Firestore에 저장할 기본 데이터
-    final data = {
-      'uid': uid,
-      'email': email.trim().toLowerCase(), // 이메일은 소문자로 정규화 권장
-      'userType': _userType,
-      'name': name,
-      'birthDate': bd,          // Timestamp로 저장됨
-      'birthDateString': bdStr, // 표시용
-      'phone': _phoneController.text.trim(),
-      'address': _addressController.text.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
-    };
-
-    if (_userType == '보호자') {
-      data['elderEmail'] = _extraInfoController.text.trim().toLowerCase();
-    } else if (_userType == '복지사') {
-      data['orgName'] = _extraInfoController.text.trim();
+    // 유효성 검사
+    if (_emailLocalPartController.text.trim().isEmpty || domain.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이메일을 올바르게 입력해주세요.')),
+      );
+      return;
+    }
+    if (name.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('이름을 입력해주세요.')),
+      );
+      return;
+    }
+    if (_birthDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('생년월일을 선택해주세요.')),
+      );
+      return;
+    }
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('비밀번호가 일치하지 않습니다.')),
+      );
+      return;
     }
 
-    final fs = FirebaseFirestore.instance;
-    final batch = fs.batch();
+    setState(() => _isLoading = true);
 
-    // users/{uid}
-    final userDoc = fs.collection('users').doc(uid);
-    batch.set(userDoc, data);
+    try {
+      final cred = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
 
-    // ✅ 노인 가입 시: email_index/{email} → { uid } 추가
-    if (_userType == '노인') {
-      final emailKey = email.trim().toLowerCase();
-      final idxDoc = fs.collection('email_index').doc(emailKey);
-      batch.set(idxDoc, {'uid': uid});
+      final uid = cred.user!.uid;
+      final bd = _birthDate!;
+      final bdStr =
+          '${bd.year.toString().padLeft(4, '0')}-'
+          '${bd.month.toString().padLeft(2, '0')}-'
+          '${bd.day.toString().padLeft(2, '0')}';
+
+      final data = {
+        'uid': uid,
+        'email': email.trim().toLowerCase(),
+        'userType': _userType,
+        'name': name,
+        'birthDate': bd,
+        'birthDateString': bdStr,
+        'phone': _phoneController.text.trim(),
+        'address': _addressController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      };
+
+      if (_userType == '보호자') {
+        data['elderEmail'] = _extraInfoController.text.trim().toLowerCase();
+      } else if (_userType == '복지사') {
+        data['orgName'] = _extraInfoController.text.trim();
+      }
+
+      final fs = FirebaseFirestore.instance;
+      final batch = fs.batch();
+      final userDoc = fs.collection('users').doc(uid);
+      batch.set(userDoc, data);
+
+      if (_userType == '노인') {
+        final emailKey = email.trim().toLowerCase();
+        final idxDoc = fs.collection('email_index').doc(emailKey);
+        batch.set(idxDoc, {'uid': uid});
+      }
+
+      await batch.commit();
+      await FirebaseAuth.instance.signOut();
+
+      if (!mounted) return;
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        '/login',
+            (route) => false,
+        arguments: {'prefillEmail': email},
+      );
+
+    } on FirebaseAuthException catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message ?? '회원가입 실패')),
+      );
+    } finally {
+      if(mounted) setState(() => _isLoading = false);
     }
-
-    await batch.commit();
-
-    // (선택) 보호자일 때, 가입 시점에 elderEmail을 입력했다면
-    // 여기서 email_index를 조회해 elderUid를 바로 연결하는 로직을 추가할 수도 있음.
-    // 하지만 보통은 "연결" 화면에서 별도로 처리.
-
-    //  가입 직후 자동 로그아웃
-    await FirebaseAuth.instance.signOut();
-
-    //  로그인 화면으로 이동 (이메일 프리필)
-    if (!mounted) return;
-    Navigator.pushNamedAndRemoveUntil(
-      context,
-      '/login',
-      (route) => false,
-      arguments: {'prefillEmail': email},
-    );
-    
-  } on FirebaseAuthException catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(e.message ?? '회원가입 실패')),
-    );
-  } finally {
-    setState(() => _isLoading = false);
   }
-}
 
 
   Widget _buildExtraField() {
     if (_userType == '보호자') {
       return TextField(
         controller: _extraInfoController,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
+          prefixIcon: Icon(Icons.link),
           labelText: '연결할 노인 이메일',
-          border: OutlineInputBorder(),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     } else if (_userType == '복지사') {
       return TextField(
         controller: _extraInfoController,
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
+          prefixIcon: Icon(Icons.business),
           labelText: '소속 기관명',
-          border: OutlineInputBorder(),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
         ),
       );
     } else {
@@ -183,101 +189,142 @@ void _signup() async {
     return Scaffold(
       appBar: AppBar(title: const Text('회원가입')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // 🔧 UI 개선 적용
             DropdownButtonFormField<String>(
               value: _userType,
               items: ['노인', '보호자', '복지사']
                   .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                   .toList(),
               onChanged: (v) => setState(() => _userType = v!),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.people_outline),
                 labelText: '회원 유형 선택',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             _buildExtraField(),
-            const SizedBox(height: 12),
-
-            // 이름
+            const SizedBox(height: 16),
             TextField(
               controller: _nameController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.badge_outlined),
                 labelText: '이름',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // 생년월일
+            const SizedBox(height: 16),
             TextField(
               controller: _birthController,
               readOnly: true,
               onTap: _pickBirthDate,
-              decoration: const InputDecoration(
-                labelText: '생년월일 (YYYY-MM-DD)',
-                hintText: '생년월일을 선택해주세요',
-                border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.calendar_today),
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.cake_outlined),
+                labelText: '생년월일',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
 
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: const InputDecoration(
-                labelText: '이메일',
-                border: OutlineInputBorder(),
-              ),
+            // 🔧 이메일 입력 UI
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _emailLocalPartController,
+                    decoration: InputDecoration(
+                      labelText: '이메일',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.horizontal(left: Radius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: Text("@", style: TextStyle(fontSize: 16)),
+                ),
+                Expanded(
+                  child: _selectedDomain == '직접입력'
+                      ? TextField(
+                    controller: _emailDomainController,
+                    decoration: InputDecoration(
+                      labelText: '도메인 입력',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.horizontal(right: Radius.circular(12)),
+                      ),
+                    ),
+                  )
+                      : DropdownButtonFormField<String>(
+                    value: _selectedDomain,
+                    items: _domains
+                        .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _selectedDomain = v!),
+                    decoration: InputDecoration(
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.horizontal(right: Radius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
               obscureText: true,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.lock_outline),
                 labelText: '비밀번호',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: _confirmPasswordController,
               obscureText: true,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.lock_person_outlined),
                 labelText: '비밀번호 확인',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.phone_outlined),
                 labelText: '전화번호',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             TextField(
               controller: _addressController,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
+                prefixIcon: Icon(Icons.home_outlined),
                 labelText: '집 주소',
-                border: OutlineInputBorder(),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
-            const SizedBox(height: 20),
-
+            const SizedBox(height: 24),
             ElevatedButton(
               onPressed: _isLoading ? null : _signup,
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 48)),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                backgroundColor: Colors.deepPurple,
+                foregroundColor: Colors.white,
+              ),
               child: _isLoading
                   ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text('회원가입'),
+                  : const Text('회원가입', style: TextStyle(fontSize: 16)),
             ),
           ],
         ),
