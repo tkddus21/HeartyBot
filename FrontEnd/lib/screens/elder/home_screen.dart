@@ -140,7 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 캘린더
+// 캘린더
             Container(
               decoration: BoxDecoration(
                 color: Colors.white,
@@ -152,11 +152,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 firstDay: DateTime.utc(2020, 1, 1),
                 lastDay: DateTime.utc(2035, 12, 31),
                 focusedDay: _focusedDay,
+
+                // ✅ 주/월 전환 허용 (위/아래 스와이프로 변경)
                 calendarFormat: _calendarFormat,
                 availableCalendarFormats: const {
                   CalendarFormat.week: 'Week',
                   CalendarFormat.month: 'Month',
                 },
+                availableGestures: AvailableGestures.all, // 위/아래: 형식 전환, 좌/우: 달 이동
+
+                // ✅ 요일 헤더 잘리면 높이 늘리기 (선택)
+                daysOfWeekHeight: 22.0,
+
                 onFormatChanged: (format) {
                   if (_calendarFormat != format) {
                     setState(() => _calendarFormat = format);
@@ -168,16 +175,51 @@ class _HomeScreenState extends State<HomeScreen> {
                     _selectedDay = selectedDay;
                     _focusedDay = focusedDay;
                   });
-                  // 선택된 날짜 체크리스트 재계산
                   final uid = FirebaseAuth.instance.currentUser!.uid;
                   await recomputeDosesForDate(uid, selectedDay);
                 },
-                calendarStyle: CalendarStyle(
-                  selectedDecoration:
-                  const BoxDecoration(color: _brandPurple, shape: BoxShape.circle),
-                  todayDecoration:
-                  BoxDecoration(color: _brandPurple.withOpacity(0.5), shape: BoxShape.circle),
+
+                // ✅ 주말 색상 지정 (요일 헤더 + 날짜 셀)
+                calendarBuilders: CalendarBuilders(
+                  // 요일 헤더(일~토)
+                  dowBuilder: (context, day) {
+                    switch (day.weekday) {
+                      case DateTime.sunday:
+                        return const Center(child: Text('일', style: TextStyle(color: Colors.red)));
+                      case DateTime.saturday:
+                        return const Center(child: Text('토', style: TextStyle(color: Colors.blue)));
+                      default:
+                        return Center(child: Text(DateFormat.E('ko_KR').format(day)));
+                    }
+                  },
+                  // 날짜 셀(숫자)
+                  defaultBuilder: (context, day, focusedDay) {
+                    switch (day.weekday) {
+                      case DateTime.sunday:
+                        return Center(child: Text('${day.day}', style: const TextStyle(color: Colors.red)));
+                      case DateTime.saturday:
+                        return Center(child: Text('${day.day}', style: const TextStyle(color: Colors.blue)));
+                      default:
+                        return null; // 기본 렌더링 사용
+                    }
+                  },
                 ),
+
+                calendarStyle: CalendarStyle(
+                  selectedDecoration: const BoxDecoration(
+                    color: _brandPurple,
+                    shape: BoxShape.circle,
+                  ),
+                  todayDecoration: BoxDecoration(
+                    color: _brandPurple.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                  ),
+                  // 참고: 아래 weekendTextStyle은 defaultBuilder가 있으면 덮어써집니다.
+                  weekendTextStyle: const TextStyle(color: Colors.red),
+                  // 필요 시 월간에서 다른 달 날짜 숨기기
+                  // outsideDaysVisible: false,
+                ),
+
                 headerStyle: const HeaderStyle(
                   formatButtonVisible: false,
                   titleCentered: true,
@@ -185,6 +227,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
             ),
+
             const SizedBox(height: 16),
 
             // 약 복용 카드
