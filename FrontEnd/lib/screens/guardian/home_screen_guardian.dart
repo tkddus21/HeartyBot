@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'guardian_report_screen.dart';
 import 'guardian_emotion_diary_screen.dart';
 import 'guardian_chat_log_screen.dart';
@@ -8,6 +11,7 @@ import '../settings_screen_second.dart';
 
 class HomeScreenGuardian extends StatefulWidget {
   const HomeScreenGuardian({super.key});
+
   @override
   State<HomeScreenGuardian> createState() => _HomeScreenGuardianState();
 }
@@ -25,6 +29,42 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
     GuardianAlertScreen(),
   ];
 
+  /// 보호자 → elderUid → 어르신 이름을 스트림으로 가져와 AppBar 제목 구성
+  Widget _buildDynamicTitle() {
+    final guardianUid = FirebaseAuth.instance.currentUser!.uid;
+    final guardianRef =
+    FirebaseFirestore.instance.collection('users').doc(guardianUid);
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: guardianRef.snapshots(),
+      builder: (context, gSnap) {
+        if (!gSnap.hasData) {
+          return const Text('담당 어르신 요약');
+        }
+        final elderUid = gSnap.data!.data()?['elderUid'] as String?;
+        if (elderUid == null || elderUid.isEmpty) {
+          return const Text('담당 어르신 요약');
+        }
+
+        final elderRef =
+        FirebaseFirestore.instance.collection('users').doc(elderUid);
+
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: elderRef.snapshots(),
+          builder: (context, eSnap) {
+            if (!eSnap.hasData || !eSnap.data!.exists) {
+              return const Text('담당 어르신 요약');
+            }
+            final name = (eSnap.data!.data()?['name'] ?? '').toString().trim();
+            final title =
+            name.isEmpty ? '담당 어르신 요약' : '$name님 오늘의 케어 요약';
+            return Text(title, overflow: TextOverflow.ellipsis);
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -32,7 +72,6 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
       appBar: AppBar(
         backgroundColor: _purple,
         foregroundColor: Colors.white,
-        // 왼쪽 상단 톱니바퀴 버튼
         leading: IconButton(
           icon: const Icon(Icons.settings),
           onPressed: () {
@@ -42,8 +81,7 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
             );
           },
         ),
-        // 스샷 텍스트에 맞춤
-        title: const Text('담당 어르신 요약'),
+        title: _buildDynamicTitle(),
       ),
       body: _pages[_idx],
       bottomNavigationBar: BottomNavigationBar(
