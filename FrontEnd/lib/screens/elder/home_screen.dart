@@ -30,6 +30,13 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription? _medsSub;
   Timer? _recomputeDebounce;
 
+  // ===== 알림 허용/차단 상태 =====
+  bool _notificationsEnabled = true;
+  DocumentReference<Map<String, dynamic>> get _userDoc {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    return FirebaseFirestore.instance.collection('users').doc(uid);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +57,41 @@ class _HomeScreenState extends State<HomeScreen> {
         recomputeDosesForDate(uid, _selectedDay ?? DateTime.now());
       });
     });
+
+    _loadNotificationSetting();
+  }
+
+  Future<void> _loadNotificationSetting() async {
+    try {
+      final snap = await _userDoc.get();
+      final enabled = (snap.data()?['notificationsEnabled'] as bool?) ?? true;
+      if (mounted) setState(() => _notificationsEnabled = enabled);
+    } catch (_) {
+      // 문제 있어도 기본값(true) 유지
+    }
+  }
+
+  Future<void> _toggleNotifications() async {
+    final next = !_notificationsEnabled;
+    setState(() => _notificationsEnabled = next);
+
+    try {
+      await _userDoc.set(
+        {'notificationsEnabled': next, 'updatedAt': FieldValue.serverTimestamp()},
+        SetOptions(merge: true),
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(next ? '알림을 켰습니다.' : '알림을 껐습니다.')),
+      );
+    } catch (e) {
+      // 실패 시 롤백
+      if (mounted) setState(() => _notificationsEnabled = !next);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('알림 설정을 저장하지 못했습니다.')),
+      );
+    }
   }
 
   @override
@@ -173,6 +215,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final notiIcon =
+    _notificationsEnabled ? Icons.notifications : Icons.notifications_off;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('또바기'),
@@ -186,8 +231,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: () {},
+            tooltip: _notificationsEnabled ? '알림 끄기' : '알림 켜기',
+            icon: Icon(notiIcon),
+            onPressed: _toggleNotifications, // ✅ 토글 동작
           ),
         ],
       ),
