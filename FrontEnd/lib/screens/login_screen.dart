@@ -18,9 +18,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordController = TextEditingController();
   bool _loading = false;
 
-  bool _argsApplied = false; // arguments(프리필 이메일) 한 번만 적용
+  bool _argsApplied = false;
 
-  // 필요한 스코프만 사용(추가 정보 필요하면 확장 가능)
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
   );
@@ -32,16 +31,12 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // 회원가입 화면에서 넘겨준 prefillEmail 적용
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_argsApplied) return;
 
-    final args = ModalRoute
-        .of(context)
-        ?.settings
-        .arguments;
+    final args = ModalRoute.of(context)?.settings.arguments;
     if (args is Map && args['prefillEmail'] is String) {
       final email = (args['prefillEmail'] as String).trim();
       if (email.isNotEmpty) _emailController.text = email;
@@ -66,15 +61,13 @@ class _LoginScreenState extends State<LoginScreen> {
         email: email,
         password: password,
       );
-
-      // 이메일/비번 로그인도 최초 로그인일 수 있으니 문서/온보딩 보장
       await _ensureUserDocIfMissing(cred);
-
-      // ⬇️ 온보딩(프로필 설정) 필요 시 이동, 취소하면 더 이상 진행 X
       final proceed = await _maybeOnboard();
-      if (!proceed) return;
-
-      // ⬇️ 온보딩 완료 시에만 역할별 홈으로
+      if (!proceed) {
+        // 온보딩 취소 시 로그아웃 처리
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
       await _routeByRole();
     } on FirebaseAuthException catch (e) {
       _showAuthError(e.code);
@@ -83,33 +76,26 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// Google 로그인
   Future<void> _googleLogin() async {
     setState(() => _loading = true);
     try {
-      // 1) 구글 계정 선택
       final GoogleSignInAccount? gUser = await _googleSignIn.signIn();
-      if (gUser == null) return; // 사용자가 취소
+      if (gUser == null) return;
 
-      // 2) 토큰
       final gAuth = await gUser.authentication;
-
-      // 3) Firebase Auth 교환
       final credential = GoogleAuthProvider.credential(
         idToken: gAuth.idToken,
         accessToken: gAuth.accessToken,
       );
       final userCred =
       await FirebaseAuth.instance.signInWithCredential(credential);
-
-      // 4) Firestore 사용자 문서/역할 보장(역할은 BottomSheet에서 선택)
       await _ensureUserDocWithRole(userCred);
-
-      // 5) 온보딩(프로필) 필요하면 이동, 취소하면 중단
       final proceed = await _maybeOnboard();
-      if (!proceed) return;
-
-      // 6) 역할별 홈 라우팅
+      if (!proceed) {
+        await FirebaseAuth.instance.signOut();
+        await _googleSignIn.signOut();
+        return;
+      }
       await _routeByRole();
     } on FirebaseAuthException catch (e) {
       _showAuthError(e.code);
@@ -118,7 +104,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// Firestore 사용자 문서가 없으면 만들어 줌(이메일 로그인 대비)
   Future<void> _ensureUserDocIfMissing(UserCredential cred) async {
     final user = cred.user!;
     final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
@@ -138,7 +123,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// Firestore 문서/역할 보장 (구글 최초 로그인 시 BottomSheet로 역할 선택)
   Future<void> _ensureUserDocWithRole(UserCredential userCred) async {
     final user = userCred.user!;
     final ref = FirebaseFirestore.instance.collection('users').doc(user.uid);
@@ -152,10 +136,10 @@ class _LoginScreenState extends State<LoginScreen> {
     String? role = snap.data()?['userType'] as String?;
 
     if (!snap.exists) {
-      // 문서가 없으면 기본 데이터 생성 + 역할 즉시 선택
       role = await _pickRoleBottomSheet();
       if (role == null) {
-        await FirebaseAuth.instance.signOut(); // 취소 시 안전하게 로그아웃
+        await FirebaseAuth.instance.signOut();
+        await _googleSignIn.signOut();
         throw FirebaseAuthException(
             code: 'cancelled', message: 'role not selected');
       }
@@ -163,17 +147,17 @@ class _LoginScreenState extends State<LoginScreen> {
         'email': email,
         'name': name,
         'photoUrl': photoUrl,
-        'provider': 'google',
+        'provider': 'google.com',
         'userType': role,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'onboarded': false, // 아직 프로필 미완료
+        'onboarded': false,
       }, SetOptions(merge: true));
     } else if (role == null || role.isEmpty) {
-      // 문서는 있으나 역할이 비어있으면 선택 받기
       role = await _pickRoleBottomSheet();
       if (role == null) {
         await FirebaseAuth.instance.signOut();
+        await _googleSignIn.signOut();
         throw FirebaseAuthException(
             code: 'cancelled', message: 'role not selected');
       }
@@ -184,7 +168,6 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  /// 역할 선택 BottomSheet
   Future<String?> _pickRoleBottomSheet() async {
     if (!mounted) return null;
     return await showModalBottomSheet<String>(
@@ -228,17 +211,14 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  /// 온보딩 필요 시 프로필 설정 화면으로 이동하고, 저장 완료(True)일 때만 계속 진행
   Future<bool> _maybeOnboard() async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final ref = FirebaseFirestore.instance.collection('users').doc(uid);
     final snap = await ref.get();
     final data = snap.data() ?? {};
 
-    // 이미 온보딩 완료면 true
     if (data['onboarded'] == true) return true;
 
-    // 아직이면 프로필 화면으로 진입 (뒤로가기=취소 시 false 반환)
     final result = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
@@ -256,7 +236,6 @@ class _LoginScreenState extends State<LoginScreen> {
     return result == true;
   }
 
-  /// Firestore의 userType에 따라 라우팅
   Future<void> _routeByRole() async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final snap =
@@ -311,91 +290,104 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 🔧 UI 개선 시작
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('로그인'),
-        leading: const SizedBox.shrink(),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 24),
-            Center(
-              child: Image.asset('assets/logo.jpg',
-                  width: 220, height: 220, fit: BoxFit.cover),
-            ),
-            const SizedBox(height: 16),
-
-            TextField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: '이메일',
-                border: OutlineInputBorder(),
+      // 🔧 AppBar 제거 또는 단순화 (여기서는 제거)
+      // appBar: AppBar(title: const Text('로그인')),
+      body: SafeArea( // 🔧 SafeArea로 감싸서 상단 노치 등을 피함
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 30.0, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 40),
+              // 🔧 기존 일러스트 이미지로 변경 (파일 경로를 확인해주세요)
+              Center(
+                child: Image.asset('assets/logo.jpg',
+                  width: 400,
+                  // height: 180, // 너비에 맞춰 높이는 자동 조절되도록 설정
+                ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 40),
 
-            TextField(
-              controller: _passwordController,
-              obscureText: true,
-              onSubmitted: (_) => _login(),
-              decoration: const InputDecoration(
-                labelText: '비밀번호',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            SizedBox(
-              height: 48,
-              child: ElevatedButton(
-                onPressed: _loading ? null : _login,
-                child: _loading
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('로그인'),
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // ✅ B안: 구글 로고 + 텍스트 버튼
-            SizedBox(
-              height: 48,
-              child: OutlinedButton(
-                onPressed: _loading ? null : _googleLogin,
-                style: OutlinedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  side: BorderSide(color: Colors.grey.shade300),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+              // 🔧 이메일 입력창
+              TextField(
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(
+                  prefixIcon: Icon(Icons.person_outline),
+                  labelText: '이메일',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Image.asset(
-                        'assets/google.logo.png', width: 22, height: 22),
-                    const SizedBox(width: 10),
-                    const Text('Google로 계속하기'),
-                  ],
+              ),
+              const SizedBox(height: 16),
+
+              // 🔧 비밀번호 입력창
+              TextField(
+                controller: _passwordController,
+                obscureText: true,
+                onSubmitted: (_) => _login(),
+                decoration: InputDecoration(
+                  prefixIcon: Icon(Icons.lock_outline),
+                  labelText: '비밀번호',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
+              const SizedBox(height: 24),
 
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                TextButton(onPressed: _goToSignup, child: const Text('회원가입')),
-                TextButton(
-                    onPressed: _goToForgotPassword,
-                    child: const Text('아이디 / 비밀번호 찾기')),
-              ],
-            ),
-          ],
+              // 🔧 로그인 버튼
+              ElevatedButton(
+                onPressed: _loading ? null : _login,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  backgroundColor: Colors.deepPurple,
+                  foregroundColor: Colors.white,
+                ),
+                child: _loading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('로그인', style: TextStyle(fontSize: 16)),
+              ),
+              const SizedBox(height: 16),
+
+              // 🔧 Google 로그인 버튼
+              OutlinedButton.icon(
+                onPressed: _loading ? null : _googleLogin,
+                style: OutlinedButton.styleFrom(
+                  minimumSize: Size(double.infinity, 52),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  side: BorderSide(color: Colors.grey.shade300),
+                ),
+                icon: Image.asset('assets/google.logo.png', width: 22, height: 22),
+                label: const Text(
+                  'Google로 계속하기',
+                  style: TextStyle(color: Colors.black87),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 🔧 회원가입 / 비밀번호 찾기
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton(onPressed: _goToSignup, child: const Text('회원가입')),
+                  Text("|", style: TextStyle(color: Colors.grey.shade400)),
+                  TextButton(
+                      onPressed: _goToForgotPassword,
+                      child: const Text('비밀번호 찾기')),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
