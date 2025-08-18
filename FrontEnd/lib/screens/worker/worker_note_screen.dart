@@ -35,28 +35,35 @@ class _WorkerNoteScreenState extends State<WorkerNoteScreen> {
   final TextEditingController _noteController = TextEditingController();
   bool _isSaving = false;
 
+  // 🔧 Firestore 경로를 쉽게 참조하기 위한 헬퍼 함수
+  CollectionReference? _getNotesCollectionRef() {
+    final workerUid = FirebaseAuth.instance.currentUser?.uid;
+    if (workerUid == null || widget.selectedElder == null) return null;
+
+    return FirebaseFirestore.instance
+        .collection('users')
+        .doc(workerUid)
+        .collection('notes_by_elder')
+        .doc(widget.selectedElder!.uid)
+        .collection('notes');
+  }
+
   // 🔧 Firestore에 메모를 저장하는 함수
   Future<void> _saveNote() async {
     final noteText = _noteController.text.trim();
-    if (noteText.isEmpty || widget.selectedElder == null) return;
+    if (noteText.isEmpty) return;
 
-    final workerUid = FirebaseAuth.instance.currentUser?.uid;
-    if (workerUid == null) return;
+    final notesRef = _getNotesCollectionRef();
+    if (notesRef == null) return;
 
     setState(() => _isSaving = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(workerUid)
-          .collection('notes_by_elder') // 어르신별 메모를 위한 새 컬렉션
-          .doc(widget.selectedElder!.uid)
-          .collection('notes')
-          .add({
+      await notesRef.add({
         'note_text': noteText,
         'createdAt': FieldValue.serverTimestamp(),
       });
       _noteController.clear();
-      FocusScope.of(context).unfocus(); // 키보드 숨기기
+      FocusScope.of(context).unfocus();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("메모가 저장되었습니다.")),
       );
@@ -69,19 +76,95 @@ class _WorkerNoteScreenState extends State<WorkerNoteScreen> {
     }
   }
 
-  // 🔧 Firestore에서 특정 어르신의 메모 목록을 불러오는 함수
+  // 🔧 Firestore에서 메모를 삭제하는 함수
+  Future<void> _deleteNote(String noteId) async {
+    final notesRef = _getNotesCollectionRef();
+    if (notesRef == null) return;
+
+    try {
+      await notesRef.doc(noteId).delete();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("메모가 삭제되었습니다.")),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("메모 삭제 중 오류가 발생했습니다.")),
+      );
+    }
+  }
+
+  // 🔧 메모 수정 팝업을 띄우는 함수
+  void _showEditNoteDialog(WorkerNote note) {
+    final editController = TextEditingController(text: note.text);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("메모 수정"),
+        content: TextField(
+          controller: editController,
+          autofocus: true,
+          maxLines: 5,
+        ),
+        actions: [
+          TextButton(
+            child: Text("취소"),
+            onPressed: () => Navigator.pop(context),
+          ),
+          ElevatedButton(
+            child: Text("저장"),
+            onPressed: () async {
+              final newText = editController.text.trim();
+              if (newText.isEmpty) return;
+
+              final notesRef = _getNotesCollectionRef();
+              if (notesRef == null) return;
+
+              await notesRef.doc(note.id).update({
+                'note_text': newText,
+                'updatedAt': FieldValue.serverTimestamp(),
+              });
+              Navigator.pop(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 🔧 메모를 꾹 눌렀을 때 옵션(수정/삭제)을 보여주는 함수
+  void _showNoteOptions(WorkerNote note) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("메모 관리"),
+        content: Text("이 메모를 수정하거나 삭제하시겠습니까?"),
+        actions: [
+          TextButton(
+            child: Text("수정"),
+            onPressed: () {
+              Navigator.pop(context);
+              _showEditNoteDialog(note);
+            },
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text("삭제"),
+            onPressed: () {
+              Navigator.pop(context);
+              _deleteNote(note.id);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Firestore에서 특정 어르신의 메모 목록을 불러오는 함수
   Stream<List<WorkerNote>> _getNotesStream() {
-    if (widget.selectedElder == null) return Stream.value([]);
+    final notesRef = _getNotesCollectionRef();
+    if (notesRef == null) return Stream.value([]);
 
-    final workerUid = FirebaseAuth.instance.currentUser?.uid;
-    if (workerUid == null) return Stream.value([]);
-
-    return FirebaseFirestore.instance
-        .collection('users')
-        .doc(workerUid)
-        .collection('notes_by_elder')
-        .doc(widget.selectedElder!.uid)
-        .collection('notes')
+    return notesRef
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map((snapshot) =>
@@ -102,7 +185,6 @@ class _WorkerNoteScreenState extends State<WorkerNoteScreen> {
 
     return Column(
       children: [
-        // 🔧 메모 목록을 보여주는 부분
         Expanded(
           child: StreamBuilder<List<WorkerNote>>(
             stream: _getNotesStream(),
@@ -123,6 +205,8 @@ class _WorkerNoteScreenState extends State<WorkerNoteScreen> {
                     child: ListTile(
                       title: Text(note.text),
                       subtitle: Text(DateFormat('yyyy년 M월 d일 HH:mm').format(note.createdAt)),
+                      // 🔧 꾹 눌렀을 때 옵션 메뉴가 나타나도록 onLongPress 추가
+                      onLongPress: () => _showNoteOptions(note),
                     ),
                   );
                 },
@@ -130,7 +214,6 @@ class _WorkerNoteScreenState extends State<WorkerNoteScreen> {
             },
           ),
         ),
-        // 🔧 메모 입력창 부분
         Divider(height: 1),
         Container(
           padding: EdgeInsets.all(12.0),
