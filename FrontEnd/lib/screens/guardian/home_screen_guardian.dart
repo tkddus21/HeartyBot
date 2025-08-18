@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 import 'guardian_report_screen.dart';
 import 'guardian_emotion_diary_screen.dart';
-import 'guardian_chat_log_screen.dart';
 import 'guardian_medication_screen.dart';
 import 'guardian_alert_screen.dart';
 import '../settings_screen_second.dart';
@@ -24,7 +22,6 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
   final _pages = const [
     GuardianReportScreen(),
     GuardianEmotionDiaryScreen(),
-    GuardianChatLogScreen(),
     GuardianMedicationScreen(),
     GuardianAlertScreen(),
   ];
@@ -92,7 +89,6 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.dashboard), label: '홈'),
           BottomNavigationBarItem(icon: Icon(Icons.emoji_emotions), label: '감정'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: '대화'),
           BottomNavigationBarItem(icon: Icon(Icons.medical_services), label: '약'),
           BottomNavigationBarItem(icon: Icon(Icons.warning), label: '알림'),
         ],
