@@ -10,6 +10,12 @@ import 'package:http_parser/http_parser.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// ----- Colors (부드러운 라벤더 톤) -----
+const _brandPurple = Color(0xFF9B8CF6); // 연보라
+const _lightBg = Color(0xFFF7F6FD);     // 아주 옅은 보라빛 배경
+const _border = Color(0x1A9B8CF6);      // 보라 10% (1A=10%)
+
+// ======================================
 class DiaryScreen extends StatefulWidget {
   @override
   _DiaryScreenState createState() => _DiaryScreenState();
@@ -20,7 +26,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   String? _audioPath;
   bool _isRecording = false;
-  bool _isLoading = false; // 🔧 로딩 상태 추가
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -28,16 +34,15 @@ class _DiaryScreenState extends State<DiaryScreen> {
     super.dispose();
   }
 
-  /// 🔧 감정 분석 (API 호출)
+  // ---------------- Emotion API ----------------
   Future<Map<String, String>> _fetchEmotionAnalysis(String text) async {
-    final url = Uri.parse('http://10.0.2.2:8000/emotion'); // 에뮬레이터용 주소
+    final url = Uri.parse('http://10.0.2.2:8000/emotion'); // 에뮬레이터용
     try {
       final res = await http.post(
         url,
         headers: {"Content-Type": "application/json"},
         body: jsonEncode({"user_input": text}),
       );
-
       if (res.statusCode == 200) {
         final data = jsonDecode(utf8.decode(res.bodyBytes));
         return {
@@ -52,15 +57,19 @@ class _DiaryScreenState extends State<DiaryScreen> {
     }
   }
 
-  /// 일기 저장 (Firestore)
+  // ---------------- Save Diary ----------------
   void _saveDiary() async {
     final text = _diaryController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('내용을 입력해주세요.')),
+      );
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
-      // 🔧 API를 호출하여 감정 분석 결과를 받아옵니다.
       final emotionData = await _fetchEmotionAnalysis(text);
       final emotion = emotionData['emotion'];
       final reason = emotionData['reason'];
@@ -72,35 +81,29 @@ class _DiaryScreenState extends State<DiaryScreen> {
       final diaryRef = userDoc.collection('diaries').doc();
 
       final batch = FirebaseFirestore.instance.batch();
-
       batch.set(diaryRef, {
         'text': text,
-        'emotion': emotion, // API로 분석된 감정
-        'emotion_reason': reason, // API로 분석된 이유
+        'emotion': emotion,
+        'emotion_reason': reason,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-
-      batch.update(
-        userDoc,
-        {
-          'lastDiaryAt': FieldValue.serverTimestamp(),
-          'diaryCount': FieldValue.increment(1),
-        },
-      );
-
+      batch.update(userDoc, {
+        'lastDiaryAt': FieldValue.serverTimestamp(),
+        'diaryCount': FieldValue.increment(1),
+      });
       await batch.commit();
 
       _diaryController.clear();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("일기가 저장되었습니다")),
+        const SnackBar(content: Text('일기가 저장되었습니다')),
       );
     } catch (e) {
       debugPrint("일기 저장 실패: $e");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("저장 실패: $e")),
+        SnackBar(content: Text('저장 실패: $e')),
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -117,7 +120,7 @@ class _DiaryScreenState extends State<DiaryScreen> {
     return user;
   }
 
-  /// 🔹 녹음 시작/중지 토글
+  // ---------------- Recording ----------------
   Future<void> _toggleRecording() async {
     if (_isRecording) {
       await _stopRecordingAndSend();
@@ -138,26 +141,25 @@ class _DiaryScreenState extends State<DiaryScreen> {
         codec: Codec.aacMP4,
       );
 
-      setState(() {
-        _isRecording = true;
-      });
+      setState(() => _isRecording = true);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('마이크 권한이 필요합니다.')),
+      );
     }
   }
 
   Future<void> _stopRecordingAndSend() async {
     await _recorder.stopRecorder();
     await _recorder.closeRecorder();
-
-    setState(() {
-      _isRecording = false;
-    });
+    setState(() => _isRecording = false);
 
     if (_audioPath != null) {
       await _uploadAudio(File(_audioPath!));
     }
   }
 
-  /// 🔹 FastAPI 서버에 음성 업로드
+  // ---------------- Upload Audio ----------------
   Future<void> _uploadAudio(File audioFile) async {
     setState(() => _isLoading = true);
     final uri = Uri.parse('http://10.0.2.2:8000/transcribe');
@@ -167,39 +169,35 @@ class _DiaryScreenState extends State<DiaryScreen> {
         audioFile.path,
         contentType: MediaType('audio', 'mp4'),
       ));
-
     try {
       final response = await request.send();
       final respStr = await response.stream.bytesToString();
-
       if (response.statusCode != 200) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('서버 오류: ${response.statusCode}')),
         );
         return;
       }
-
       final data = jsonDecode(respStr) as Map<String, dynamic>;
       final newText = (data['text'] ?? '').toString();
       final before = _diaryController.text;
       final combined = before.isEmpty ? newText : '$before\n$newText';
-
       if (!mounted) return;
       setState(() {
         _diaryController.text = combined;
       });
-
     } catch (e) {
-      debugPrint('❌ 업로드 실패: $e');
+      debugPrint('업로드 실패: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('네트워크/업로드 오류가 발생했습니다.')),
+// ignore: use_build_context_synchronously
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  /// 🔹 이전 일기 보기 화면 이동
+  // ---------------- History ----------------
   void _viewPastEntries() {
     Navigator.push(
       context,
@@ -207,64 +205,215 @@ class _DiaryScreenState extends State<DiaryScreen> {
     );
   }
 
+  // ---------------- UI ----------------
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("감정 일기"),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.history),
-            onPressed: _viewPastEntries,
-            tooltip: '이전 일기 보기',
-          )
-        ],
-      ),
-      body: Padding(
-        padding: EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: _diaryController,
-              maxLines: 7,
-              decoration: InputDecoration(
-                labelText: "오늘 하루 어땠나요?",
-                border: OutlineInputBorder(),
+    return Stack(
+      children: [
+        // 은은한 배경
+        Container(color: _lightBg),
+        Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: AppBar(
+            title: const Text('감정 일기'),
+            centerTitle: true,
+            elevation: 0,
+            backgroundColor: Colors.white,
+            foregroundColor: _brandPurple,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: '이전 일기 보기',
+                onPressed: _viewPastEntries,
               ),
-            ),
-            SizedBox(height: 16),
-            if (_isLoading) // 🔧 로딩 중일 때 인디케이터 표시
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                child: CircularProgressIndicator(),
-              ),
-            Row(
+            ],
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 80),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ElevatedButton.icon(
-                  onPressed: _isLoading ? null : _toggleRecording,
-                  icon: Icon(_isRecording ? Icons.mic_off : Icons.mic),
-                  label: Text(_isRecording ? "녹음 중지" : "음성 녹음"),
-                ),
-                SizedBox(width: 16),
-                if (_isRecording)
-                  Text(
-                    "녹음 중...",
-                    style: TextStyle(color: Colors.red),
+                // 타이틀 (컴팩트)
+                Padding(
+                  padding: const EdgeInsets.only(left: 2, bottom: 6),
+                  child: Text(
+                    '오늘의 감정 기록',
+                    style: TextStyle(
+                      color: _brandPurple,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                    ),
                   ),
+                ),
+
+                // 입력 카드
+                _Card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.edit_note, color: _brandPurple, size: 20),
+                          SizedBox(width: 4),
+                          Text('내용 입력',
+                              style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: _diaryController,
+                        maxLines: 5,
+                        style: const TextStyle(fontSize: 16, height: 1.4),
+                        decoration: InputDecoration(
+                          hintText: '오늘 하루를 편하게 기록해보세요.',
+                          hintStyle: TextStyle(color: Colors.grey[500]),
+                          filled: true,
+                          fillColor: Colors.white,
+                          contentPadding: const EdgeInsets.all(10),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: _border),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: const BorderSide(color: _border),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide:
+                            BorderSide(color: _brandPurple.withOpacity(0.7), width: 1),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // 음성 카드
+                _Card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.mic, color: _brandPurple, size: 18),
+                          SizedBox(width: 4),
+                          Text('음성 입력',
+                              style: TextStyle(
+                                  fontSize: 15, fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _isLoading ? null : _toggleRecording,
+                              icon: Icon(
+                                _isRecording ? Icons.mic_off : Icons.mic,
+                                size: 18,
+                              ),
+                              label: Text(_isRecording ? '중지' : '녹음'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _brandPurple,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                                textStyle: const TextStyle(
+                                    fontSize: 15, fontWeight: FontWeight.w600),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                                elevation: 0,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          if (_isRecording)
+                            const Text('녹음 중…',
+                                style: TextStyle(
+                                    color: Colors.red, fontSize: 14)),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '버튼을 누르고 말하면 텍스트로 변환됩니다.',
+                        style: TextStyle(color: Colors.grey[600], fontSize: 13.5),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
-            SizedBox(height: 16),
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : _saveDiary,
-              icon: Icon(Icons.save),
-              label: Text("일기 저장하기"),
-              style: ElevatedButton.styleFrom(
-                minimumSize: Size(double.infinity, 50),
+          ),
+
+          // 하단 저장 버튼(컴팩트)
+          bottomNavigationBar: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: SizedBox(
+                height: 46,
+                child: ElevatedButton.icon(
+                  onPressed: _isLoading ? null : _saveDiary,
+                  icon: const Icon(Icons.save, size: 18),
+                  label: const Text('저장',
+                      style:
+                      TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _brandPurple,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    elevation: 0,
+                  ),
+                ),
               ),
             ),
-          ],
+          ),
         ),
+
+        // 로딩 오버레이 (은은)
+        if (_isLoading)
+          Container(
+            color: Colors.black.withOpacity(0.08),
+            child: const Center(
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(strokeWidth: 3),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ----- 공통 카드: 패딩/그림자 축소로 컴팩트하게 -----
+class _Card extends StatelessWidget {
+  final Widget child;
+  const _Card({required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 8,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
+      child: child,
     );
   }
 }
