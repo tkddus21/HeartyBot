@@ -74,16 +74,21 @@ Color _emotionColor(String e) {
 /// ─────────────────────────────────────────────────────────────────────────
 /// Firestore watchers
 
-/// 오늘 최신 기분 1건 (emotion_logs)
-Stream<QuerySnapshot<Map<String, dynamic>>> _watchLatestEmotion(String elderUid) {
+/// 오늘 일기 중 최신 1건 (diaries)
+Stream<QuerySnapshot<Map<String, dynamic>>> _watchTodayLatestDiary(String elderUid) {
+  final start = Timestamp.fromDate(_todayStart());
+  final end   = Timestamp.fromDate(_todayEnd());
   return FirebaseFirestore.instance
       .collection('users')
       .doc(elderUid)
-      .collection('emotion_logs')
-      .orderBy('date', descending: true)
+      .collection('diaries')
+      .where('createdAt', isGreaterThanOrEqualTo: start)
+      .where('createdAt', isLessThanOrEqualTo: end)
+      .orderBy('createdAt', descending: true)
       .limit(1)
       .snapshots();
 }
+
 
 /// 오늘 복용 체크리스트 (days/{yyyy-MM-dd}/doses)
 Stream<QuerySnapshot<Map<String, dynamic>>> _watchTodayDoses(String elderUid) {
@@ -131,19 +136,20 @@ class GuardianReportScreen extends StatelessWidget {
 
         return ListView(
           children: [
-            /// ── 오늘의 기분
+            /// ── 오늘의 기분 (오늘 일기 최신 1건 기준)
             StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: _watchLatestEmotion(elderUid),
+              stream: _watchTodayLatestDiary(elderUid), // ← 여기만 교체!
               builder: (context, emoSnap) {
-                final has = emoSnap.hasData && emoSnap.data!.docs.isNotEmpty;
                 String emoji = '🙂';
                 String label = '데이터 없음';
+
+                final has = emoSnap.hasData && emoSnap.data!.docs.isNotEmpty;
                 if (has) {
                   final d = emoSnap.data!.docs.first.data();
-                  final em = (d['emotion'] ?? '').toString();
-                  final emEmoji = (d['emoji'] ?? '').toString();
-                  emoji = emEmoji.isNotEmpty ? emEmoji : (_emojiMap[em] ?? '🙂');
+                  final em = (d['emotion'] ?? '').toString().trim();
                   label = em.isEmpty ? '중립' : em;
+                  // diaries에는 emoji 필드가 없으니 매핑만 사용
+                  emoji = _emojiMap[label] ?? '🙂';
                 }
                 final color = _emotionColor(label);
 
