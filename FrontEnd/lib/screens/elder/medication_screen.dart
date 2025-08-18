@@ -412,13 +412,23 @@ class _MedicationAddScreen extends StatefulWidget {
 
 class _MedicationAddScreenState extends State<_MedicationAddScreen> {
   final _nameController = TextEditingController();
-  TimeOfDay? _selectedTime;
+
+  /// 여러 시간(“HH:mm”)과 요일(0=일..6=토)
+  final List<String> _times = <String>[];
+  final Set<int> _selectedDows = <int>{};
+
   DateTime? _startDate;
   DateTime? _endDate;
 
   String get _uid => FirebaseAuth.instance.currentUser!.uid;
 
-  String _formatTime(TimeOfDay time) {
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  String _formatTimeOfDay(TimeOfDay time) {
     final now = DateTime.now();
     final dt = DateTime(now.year, now.month, now.day, time.hour, time.minute);
     return DateFormat('HH:mm').format(dt);
@@ -426,42 +436,67 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
 
   String _formatDate(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
 
-  Future<void> _pickTime() async {
-    final picked = await showTimePicker(context: context, initialTime: TimeOfDay.now());
-    if (picked != null) setState(() => _selectedTime = picked);
+  Future<void> _addTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.now(),
+    );
+    if (picked != null) {
+      final t = _formatTimeOfDay(picked);
+      if (!_times.contains(t)) {
+        setState(() {
+          _times.add(t);
+          _times.sort(); // 시간 정렬(오름차순)
+        });
+      }
+    }
+  }
+
+  void _removeTime(String t) {
+    setState(() => _times.remove(t));
   }
 
   Future<void> _pickStartDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: DateTime.now(),
+      initialDate: _startDate ?? DateTime.now(),
       firstDate: DateTime(2020),
       lastDate: DateTime(2035),
     );
-    if (picked != null) setState(() => _startDate = picked);
+    if (picked != null) {
+      setState(() {
+        _startDate = DateTime(picked.year, picked.month, picked.day);
+        // 시작일을 바꾸면 종료일 최소값 보장
+        if (_endDate != null && _endDate!.isBefore(_startDate!)) {
+          _endDate = _startDate;
+        }
+      });
+    }
   }
 
   Future<void> _pickEndDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _startDate ?? DateTime.now(),
+      initialDate: _endDate ?? _startDate ?? DateTime.now(),
       firstDate: _startDate ?? DateTime.now(),
       lastDate: DateTime(2035),
     );
     if (picked != null) {
-      setState(() => _endDate = DateTime(picked.year, picked.month, picked.day, 23, 59, 59));
+      // 종료일은 하루의 끝(23:59:59)로 저장
+      setState(() {
+        _endDate = DateTime(picked.year, picked.month, picked.day, 23, 59, 59);
+      });
     }
   }
 
   Future<void> _addMedication() async {
     final name = _nameController.text.trim();
-    final time = _selectedTime != null ? _formatTime(_selectedTime!) : '';
     final startDate = _startDate;
     final endDate = _endDate;
 
-    if (name.isEmpty || time.isEmpty || startDate == null || endDate == null) {
+    if (name.isEmpty || _times.isEmpty || startDate == null || endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('모든 값을 입력해 주세요.')),
+        const SnackBar(content: Text('약 이름/시간/기간을 모두 입력해 주세요.')),
       );
       return;
     }
@@ -476,10 +511,13 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
     try {
       await medsCol.add({
         'name': name,
-        'times': [time],
-        'startAt': Timestamp.fromDate(DateTime(startDate.year, startDate.month, startDate.day)),
+        'times': _times, // 여러 시간
+        'startAt': Timestamp.fromDate(
+          DateTime(startDate.year, startDate.month, startDate.day),
+        ),
         'endAt': Timestamp.fromDate(endDate),
-        'daysOfWeek': [], // 0=일..6=토
+        //## 비워두면 "매일"로 해석하게끔(리스트가 비면 매일로 처리) ##
+        'daysOfWeek': _selectedDows.toList()..sort(), // 0=일..6=토
         'active': true,
         'status': 'pending',
         'createdAt': now,
@@ -496,9 +534,9 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final timeText = _selectedTime != null ? _formatTime(_selectedTime!) : '선택 안됨';
     final startText = _startDate != null ? _formatDate(_startDate!) : '선택 안됨';
     final endText = _endDate != null ? _formatDate(_endDate!) : '선택 안됨';
+    const dowLabels = ['일', '월', '화', '수', '목', '금', '토'];
 
     return Scaffold(
       appBar: AppBar(
@@ -511,53 +549,115 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
       backgroundColor: _lightBg,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Column(children: [
-          TextField(
-            controller: _nameController,
-            decoration: const InputDecoration(labelText: '약 이름', border: OutlineInputBorder()),
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            tileColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: _border)),
-            title: Text('복용 시간: $timeText'),
-            trailing: const Icon(Icons.access_time),
-            onTap: _pickTime,
-          ),
-          const SizedBox(height: 8),
-          ListTile(
-            tileColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: _border)),
-            title: Text('복용 시작일: $startText'),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: _pickStartDate,
-          ),
-          const SizedBox(height: 8),
-          ListTile(
-            tileColor: Colors.white,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: _border)),
-            title: Text('복용 종료일: $endText'),
-            trailing: const Icon(Icons.calendar_today),
-            onTap: _pickEndDate,
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _addMedication,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _brandPurple,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: SingleChildScrollView(
+          child: Column(children: [
+            // 약 이름
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: '약 이름',
+                border: OutlineInputBorder(),
               ),
-              child: const Text('약 추가하기', style: TextStyle(fontWeight: FontWeight.w700)),
+              style: const TextStyle(fontSize: 18),
             ),
-          ),
-        ]),
+
+            const SizedBox(height: 12),
+
+            // 시간 다중 선택
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('복용 시간', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                TextButton.icon(
+                  onPressed: _addTime,
+                  icon: const Icon(Icons.add),
+                  label: const Text('시간 추가'),
+                ),
+              ],
+            ),
+            if (_times.isEmpty)
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('아직 추가된 시간이 없습니다.'),
+              ),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _times
+                  .map((t) => Chip(
+                        label: Text(t, style: const TextStyle(fontSize: 16)),
+                        onDeleted: () => _removeTime(t),
+                      ))
+                  .toList(),
+            ),
+
+            const SizedBox(height: 12),
+
+            // 요일 선택
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('요일 선택', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            Wrap(
+              spacing: 8,
+              children: List.generate(7, (i) {
+                final selected = _selectedDows.contains(i);
+                return FilterChip(
+                  label: Text(dowLabels[i]),
+                  selected: selected,
+                  onSelected: (v) {
+                    setState(() {
+                      v ? _selectedDows.add(i) : _selectedDows.remove(i);
+                    });
+                  },
+                );
+              }),
+            ),
+
+            const SizedBox(height: 12),
+
+            // 시작/종료일
+            ListTile(
+              tileColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: _border),
+              ),
+              title: Text('복용 시작일: $startText', style: const TextStyle(fontSize: 18)),
+              trailing: const Icon(Icons.calendar_today),
+              onTap: _pickStartDate,
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              tileColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+                side: const BorderSide(color: _border),
+              ),
+              title: Text('복용 종료일: $endText', style: const TextStyle(fontSize: 18)),
+              trailing: const Icon(Icons.calendar_today),
+              onTap: _pickEndDate,
+            ),
+
+            const SizedBox(height: 12),
+
+            // 저장 버튼
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _addMedication,
+                icon: const Icon(Icons.check),
+                label: const Text('저장', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _brandPurple,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                ),
+              ),
+            ),
+          ]),
+        ),
       ),
     );
   }
