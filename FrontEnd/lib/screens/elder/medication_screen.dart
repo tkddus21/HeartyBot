@@ -7,6 +7,10 @@ const _brandPurple = Color(0xFF9B8CF6);
 const _lightBg = Color(0xFFF7F6FD);
 const _border = Color(0x1A9B8CF6);
 
+// 상세 바텀시트용 폰트 크기(원하면 숫자만 바꾸면 전체 반영)
+const double _detailTitleSize = 16;   // '시간', '기간', '요일', '상태' 타이틀
+const double _detailValueSize = 16;   // 각 항목의 값(예: 08:00 · 13:00)
+
 class MedicationScreen extends StatefulWidget {
   const MedicationScreen({super.key});
 
@@ -192,9 +196,9 @@ class _MedicationScreenState extends State<MedicationScreen> {
                       runSpacing: 8,
                       children: times
                           .map((t) => Chip(
-                                label: Text(t),
-                                onDeleted: () => _removeTime(t, setSheetState),
-                              ))
+                        label: Text(t),
+                        onDeleted: () => _removeTime(t, setSheetState),
+                      ))
                           .toList(),
                     ),
 
@@ -310,194 +314,293 @@ class _MedicationScreenState extends State<MedicationScreen> {
     );
 
     nameCtrl.dispose();
-    }
+  }
 
+  // === 길게 누르기 시 상세/액션 바텀시트 (요구사항 적용) ===
+  void _onLongPress(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final m = doc.data() ?? {};
+    final name = (m['name'] ?? '') as String;
+    final times = (m['times'] as List?)?.cast<String>() ?? [];
+    final timeLabel = times.isEmpty ? '-' : times.join(' · ');
+    final startAt = (m['startAt'] as Timestamp?)?.toDate();
+    final endAt = (m['endAt'] as Timestamp?)?.toDate();
+    final rangeLabel = (startAt != null && endAt != null)
+        ? '${DateFormat('yyyy.MM.dd').format(startAt)} ~ ${DateFormat('yyyy.MM.dd').format(endAt)}'
+        : '-';
+    final days = (m['daysOfWeek'] as List?)?.cast<int>() ?? [];
+    final isActive = (m['active'] as bool?) ?? true;
+    final statusText = isActive ? '활성' : '비활성';
 
-    void _onLongPress(DocumentSnapshot<Map<String, dynamic>> doc) {
-      showModalBottomSheet(
-        context: context,
-        backgroundColor: Colors.white,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
-        ),
-        builder: (context) => SafeArea(
-          child: Wrap(
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              ListTile(
-                leading: const Icon(Icons.edit, color: _brandPurple),
-                title: const Text('수정'),
-                onTap: () {
-                  Navigator.pop(context);
-                  _editMed(doc);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.delete, color: Colors.redAccent),
-                title: const Text('삭제'),
-                onTap: () async {
-                  Navigator.pop(context);
-                  final ok = await showDialog<bool>(
-                    context: context,
-                    builder: (c) => AlertDialog(
-                      title: const Text('삭제할까요?'),
-                      content: const Text('해당 약과 연결된 체크 항목도 함께 삭제됩니다.'),
-                      actions: [
-                        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('취소')),
-                        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('삭제')),
-                      ],
+              // 제목
+              Row(
+                children: [
+                  const Icon(Icons.local_hospital, color: _brandPurple),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      name,
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  );
-                  if (ok == true) {
-                    await _deleteMedication(doc);
-                  }
-                },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // 상세 정보 블록
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: _lightBg,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _border),
+                ),
+                child: Column(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.access_time, color: _brandPurple),
+                      title: Text(
+                        '시간',
+                        style: const TextStyle(
+                          fontSize: _detailTitleSize,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        timeLabel,
+                        style: const TextStyle(
+                          fontSize: _detailValueSize,
+                          // 필요하면 fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      dense: true,
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.date_range, color: _brandPurple),
+                      title: Text(
+                        '기간',
+                        style: const TextStyle(
+                          fontSize: _detailTitleSize,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        rangeLabel,
+                        style: const TextStyle(fontSize: _detailValueSize),
+                      ),
+                      dense: true,
+                    ),
+                    if (days.isNotEmpty) const Divider(height: 1),
+                    if (days.isNotEmpty)
+                      ListTile(
+                        leading: const Icon(Icons.event, color: _brandPurple),
+                        title: Text(
+                          '요일',
+                          style: const TextStyle(
+                            fontSize: _detailTitleSize,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          _daysLabel(days),
+                          style: const TextStyle(fontSize: _detailValueSize),
+                        ),
+                        dense: true,
+                      ),
+                    const Divider(height: 1),
+                    ListTile(
+                      leading: const Icon(Icons.toggle_on, color: _brandPurple),
+                      title: Text(
+                        '상태',
+                        style: const TextStyle(
+                          fontSize: _detailTitleSize,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      subtitle: Text(
+                        statusText,
+                        style: const TextStyle(fontSize: _detailValueSize),
+                      ),
+                      dense: true,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              // 액션
+              Wrap(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.edit, color: _brandPurple),
+                    title: const Text('수정'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _editMed(doc);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.delete, color: Colors.redAccent),
+                    title: const Text('삭제'),
+                    onTap: () async {
+                      Navigator.pop(context);
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (c) => AlertDialog(
+                          title: const Text('삭제할까요?'),
+                          content: const Text('해당 약과 연결된 체크 항목도 함께 삭제됩니다.'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('취소')),
+                            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('삭제')),
+                          ],
+                        ),
+                      );
+                      if (ok == true) {
+                        await _deleteMedication(doc);
+                      }
+                    },
+                  ),
+                ],
               ),
             ],
           ),
         ),
-      );
-    }
+      ),
+    );
+  }
 
-    void _goToAddPage() {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const _MedicationAddScreen()),
-      );
-    }
+  void _goToAddPage() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const _MedicationAddScreen()),
+    );
+  }
 
-    @override
-    Widget build(BuildContext context) {
-      return Scaffold(
-        backgroundColor: _lightBg,
-        appBar: AppBar(
-          title: const Text('약 관리'),
-          centerTitle: true,
-          backgroundColor: Colors.white,
-          foregroundColor: _brandPurple,
-          elevation: 0.5,
-        ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: _goToAddPage,
-          backgroundColor: _brandPurple,
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.add),
-          label: const Text('약 추가'),
-        ),
-        body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-          stream: _medicationsStream(),
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            final meds = snapshot.data?.docs ?? [];
-            if (meds.isEmpty) {
-              return Center(
-                child: Text(
-                  '등록된 약이 없습니다.\n오른쪽 아래에서 추가해 주세요.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: _lightBg,
+      appBar: AppBar(
+        title: const Text('약 관리'),
+        centerTitle: true,
+        backgroundColor: Colors.white,
+        foregroundColor: _brandPurple,
+        elevation: 0.5,
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _goToAddPage,
+        backgroundColor: _brandPurple,
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('약 추가'),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: _medicationsStream(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final meds = snapshot.data?.docs ?? [];
+          if (meds.isEmpty) {
+            return Center(
+              child: Text(
+                '등록된 약이 없습니다.\n오른쪽 아래에서 추가해 주세요.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey[700]),
+              ),
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+            itemCount: meds.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            itemBuilder: (context, i) {
+              final doc = meds[i];
+              final m = doc.data();
+              final name = (m['name'] ?? '') as String;
+              final times = (m['times'] as List?)?.cast<String>() ?? [];
+              final timeLabel = times.isEmpty ? '-' : times.join(' · ');
+
+              // ✅ 목록은 "약 이름 + 간단한 시간 요약"만 노출 (상세 숨김)
+              return InkWell(
+                onLongPress: () => _onLongPress(doc),
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: _border),
+                    boxShadow: const [
+                      BoxShadow(color: Color(0x12000000), blurRadius: 8, offset: Offset(0, 3)),
+                    ],
+                  ),
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: _brandPurple.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.local_hospital, color: _brandPurple, size: 18),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // 이름만 굵게
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            // 간단한 시간 요약만
+                            Text(
+                              '복용 시간: $timeLabel',
+                              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               );
-            }
-
-            return ListView.separated(
-              padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
-              itemCount: meds.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
-              itemBuilder: (context, i) {
-                final doc = meds[i];
-                final m = doc.data();
-                final name = (m['name'] ?? '') as String;
-                final times = (m['times'] as List?)?.cast<String>() ?? [];
-                final timeLabel = times.isEmpty ? '-' : times.join(' · ');
-                final startAt = (m['startAt'] as Timestamp?)?.toDate();
-                final endAt = (m['endAt'] as Timestamp?)?.toDate();
-                final rangeLabel = (startAt != null && endAt != null)
-                    ? '${DateFormat('yyyy.MM.dd').format(startAt)} ~ ${DateFormat('yyyy.MM.dd').format(endAt)}'
-                    : '-';
-                final days = (m['daysOfWeek'] as List?)?.cast<int>() ?? [];
-                final isActive = (m['active'] as bool?) ?? true;
-
-                return InkWell(
-                  onLongPress: () => _onLongPress(doc),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: _border),
-                      boxShadow: const [
-                        BoxShadow(color: Color(0x12000000), blurRadius: 8, offset: Offset(0, 3)),
-                      ],
-                    ),
-                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: _brandPurple.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: const Icon(Icons.local_hospital, color: _brandPurple, size: 18),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      name,
-                                      style: const TextStyle(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                    ),
-                                  ),
-                                  if (!isActive)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.grey[200],
-                                        borderRadius: BorderRadius.circular(20),
-                                      ),
-                                      child: const Text('비활성', style: TextStyle(fontSize: 12)),
-                                    ),
-                                ],
-                              ),
-                              const SizedBox(height: 6),
-                              Text('복용 시간: $timeLabel',
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                              Text('기간: $rangeLabel',
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                              if (days.isNotEmpty)
-                                Text('요일: ${_daysLabel(days)}',
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      );
-    }
-
-    String _daysLabel(List<int> days) {
-      // 0=일..6=토
-      const ko = ['일', '월', '화', '수', '목', '금', '토'];
-      return days.map((d) => (d >= 0 && d < 7) ? ko[d] : '$d').join(', ');
-    }
+            },
+          );
+        },
+      ),
+    );
   }
+
+  static String _daysLabel(List<int> days) {
+    // 0=일..6=토
+    const ko = ['일', '월', '화', '수', '목', '금', '토'];
+    return days.map((d) => (d >= 0 && d < 7) ? ko[d] : '$d').join(', ');
+  }
+}
 
 /// ===== 약 추가 화면 =====
 class _MedicationAddScreen extends StatefulWidget {
@@ -612,7 +715,7 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
           DateTime(startDate.year, startDate.month, startDate.day),
         ),
         'endAt': Timestamp.fromDate(endDate),
-        //## 비워두면 "매일"로 해석하게끔(리스트가 비면 매일로 처리) ##
+        // 비워두면 "매일"로 해석(리스트가 비면 매일 처리)
         'daysOfWeek': _selectedDows.toList()..sort(), // 0=일..6=토
         'active': true,
         'status': 'pending',
@@ -681,9 +784,9 @@ class _MedicationAddScreenState extends State<_MedicationAddScreen> {
               runSpacing: 8,
               children: _times
                   .map((t) => Chip(
-                        label: Text(t, style: const TextStyle(fontSize: 16)),
-                        onDeleted: () => _removeTime(t),
-                      ))
+                label: Text(t, style: const TextStyle(fontSize: 16)),
+                onDeleted: () => _removeTime(t),
+              ))
                   .toList(),
             ),
 
