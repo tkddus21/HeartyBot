@@ -1,3 +1,7 @@
+# 환경 변수 파일 무시
+.env
+.env.*
+
 __pycache__/
 *.py[cod]
 # Miscellaneous
