@@ -183,3 +183,180 @@ def echo(body: EchoIn):
 - [ ] Firebase 설정 파일(Android/iOS/Web) 추가  
 - [ ] `uvicorn main:app --reload` 정상 실행  
 - [ ] Flutter 앱에서 API 호출 확인  
+---
+# English version
+---
+# HeartyBot
+
+A voice/text chatbot project built with FastAPI + Flutter  
+(Integrated with OpenAI API, Whisper, Firebase)
+
+---
+
+## 📂 Project Structure
+
+```
+HeartyBot/
+├─ BackEnd/                 # FastAPI server (Python)
+│  ├─ api/                  # API routers (chat, emotion, tts, stt, etc.)
+│  ├─ services/             # Business logic modules
+│  ├─ utils/                # Utility functions
+│  ├─ main.py               # FastAPI entry point
+│  └─ requirements.txt      # Python dependencies
+│
+└─ FrontEnd/                # Flutter app
+   ├─ android/              # Android platform code
+   ├─ ios/                  # iOS platform code
+   ├─ linux/                # Linux build files
+   ├─ macos/                # macOS build files
+   ├─ windows/              # Windows build files
+   ├─ lib/                  # Flutter Dart code (UI/logic)
+   ├─ assets/               # Assets (images, fonts, etc.)
+   └─ test/                 # Test code
+```
+
+---
+
+## ⚙️ Prerequisites
+
+- Python 3.9+
+- Flutter SDK (stable)
+- Firebase project
+  - Android: `FrontEnd/android/app/google-services.json`
+  - iOS: `FrontEnd/ios/Runner/GoogleService-Info.plist`
+  - Web: `FrontEnd/web/index.html` with Firebase SDK snippet
+- ffmpeg (required by Whisper)
+
+---
+
+## 🔑 Environment Variables
+
+### Create `.env.dev`
+
+Create a file at `BackEnd/.env.dev` with the following content:
+
+```env
+# OpenAI API Key (required)
+OPENAI_API_KEY=sk-xxxxxxx
+
+# Whisper model type (tiny / base / small / medium / large)
+WHISPER_MODEL=base
+
+# App environment (optional: dev / prod)
+APP_ENV=dev
+```
+
+> ⚠️ Never commit `.env.dev` to GitHub. (It is already included in `.gitignore`)
+
+---
+
+## 📦 Backend Setup & Run
+
+```bash
+cd BackEnd
+python -m venv venv
+source venv/bin/activate   # (Windows: venv\Scripts\activate)
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+- API docs: http://localhost:8000/docs  
+- Health check: http://localhost:8000/health  
+
+---
+
+## 📦 requirements.txt
+
+```txt
+# ───────── Core server ─────────
+fastapi
+uvicorn
+python-dotenv
+requests
+
+# ───────── AI / Voice ─────────
+openai
+gtts
+speechrecognition
+
+# ───────── Whisper ─────────
+openai-whisper
+torch>=2.0.0
+```
+
+---
+
+## 🎤 ffmpeg Installation Guide
+
+### 🔹 Ubuntu / Debian (Linux)
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+### 🔹 macOS (Homebrew)
+```bash
+brew install ffmpeg
+```
+
+### 🔹 Windows
+1. Download **release full** ZIP from [FFmpeg Windows builds (gyan.dev)](https://www.gyan.dev/ffmpeg/builds/)  
+2. Extract and locate `bin/ffmpeg.exe`  
+3. Add the `bin` path to **Environment Variables → Path**  
+   - Example: `C:\ffmpeg\bin`
+4. Verify installation:
+   ```powershell
+   ffmpeg -version
+   ```
+
+---
+
+## 📱 Frontend Setup (Flutter)
+
+```bash
+cd FrontEnd
+flutter pub get
+
+# Android emulator
+flutter run -d emulator-5554
+
+# iOS simulator
+flutter run -d ios
+
+# Web
+flutter run -d chrome
+```
+
+---
+
+## 🚀 API Examples
+
+### Root route
+```bash
+GET / → {"message": "Hello from FastAPI chatbot!"}
+```
+
+### Echo API (example)
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class EchoIn(BaseModel):
+    msg: str
+
+@app.post("/echo")
+def echo(body: EchoIn):
+    return {"echo": body.msg}
+```
+
+---
+
+##  Checklist
+
+- [ ] Create `.env.dev` (`OPENAI_API_KEY` required)  
+- [ ] Install ffmpeg  
+- [ ] Add Firebase config files (Android/iOS/Web)  
+- [ ] Run backend with `uvicorn main:app --reload`  
+- [ ] Verify Flutter app can call the API  
