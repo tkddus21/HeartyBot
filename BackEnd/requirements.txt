@@ -5,3 +5,7 @@ openai
 gtts
 requests
 speechrecognition
+
+# Whisper + Torch
+openai-whisper
+torch>=2.0.0
