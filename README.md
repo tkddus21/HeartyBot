@@ -29,14 +29,22 @@ FastAPI + Flutter 기반 음성/텍스트 챗봇 프로젝트
 
 ```
 HeartyBot/
-├─ BackEnd/        # FastAPI 서버 (Python)
-│  ├─ requirements.txt
-│  └─ main.py
-└─ FrontEnd/       # Flutter 앱
-   ├─ android/
-   ├─ ios/
-   ├─ web/
-   └─ ...
+├─ BackEnd/                 # FastAPI 서버 (Python)
+│  ├─ api/                  # API 라우터 (chat, emotion, tts, stt 등)
+│  ├─ services/             # 비즈니스 로직 모듈
+│  ├─ utils/                # 유틸리티 함수
+│  ├─ main.py               # FastAPI 앱 진입점
+│  └─ requirements.txt      # Python 의존성 목록
+│
+└─ FrontEnd/                # Flutter 앱
+   ├─ android/              # Android 플랫폼 코드
+   ├─ ios/                  # iOS 플랫폼 코드
+   ├─ linux/                # Linux 빌드 관련
+   ├─ macos/                # macOS 빌드 관련
+   ├─ windows/              # Windows 빌드 관련
+   ├─ lib/                  # Flutter Dart 코드 (UI/로직)
+   ├─ assets/               # 이미지, 폰트 등 리소스
+   └─ test/                 # 테스트 코드
 ```
 
 ---
@@ -46,16 +54,16 @@ HeartyBot/
 - Python 3.9 이상
 - Flutter SDK (stable)
 - Firebase 프로젝트
-  - Android: `android/app/google-services.json`
-  - iOS: `ios/Runner/GoogleService-Info.plist`
-  - Web: `web/index.html`에 Firebase SDK 추가
+  - Android: `FrontEnd/android/app/google-services.json`
+  - iOS: `FrontEnd/ios/Runner/GoogleService-Info.plist`
+  - Web: `FrontEnd/web/index.html`에 Firebase SDK 추가
 - ffmpeg (Whisper 실행에 필요)
 
 ---
 
 ## 🔑 환경 변수
 
-프로젝트 루트 `BackEnd/.env.dev` 파일 생성:
+`BackEnd/.env.dev` 파일 생성:
 
 ```env
 OPENAI_API_KEY=sk-xxxxxxx
@@ -74,8 +82,8 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-- API 문서 확인: http://localhost:8000/docs
-- 헬스체크: http://localhost:8000/health
+- API 문서 확인: http://localhost:8000/docs  
+- 헬스체크: http://localhost:8000/health  
 
 ---
 
