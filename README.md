@@ -176,7 +176,7 @@ def echo(body: EchoIn):
 
 ---
 
-## ✅ 체크리스트
+##  체크리스트
 
 - [ ] `.env.dev` 작성 (`OPENAI_API_KEY` 필수)  
 - [ ] ffmpeg 설치 완료  
