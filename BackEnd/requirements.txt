@@ -1,11 +1,12 @@
+# ───────── 기본 서버 ─────────
 fastapi
 uvicorn
 python-dotenv
+requests
+# ───────── AI/음성 ─────────
 openai
 gtts
-requests
 speechrecognition
-
 # Whisper + Torch
 openai-whisper
 torch>=2.0.0
