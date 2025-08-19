@@ -52,7 +52,7 @@ class _HomeScreenGuardianState extends State<HomeScreenGuardian> {
             }
             final name = (eSnap.data!.data()?['name'] ?? '').toString().trim();
             final title =
-            name.isEmpty ? '담당 어르신 요약' : '$name님 오늘의 케어 요약';
+            name.isEmpty ? '담당 어르신 요약' : '$name님 케어 요약';
             return Text(title, overflow: TextOverflow.ellipsis);
           },
         );
