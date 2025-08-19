@@ -18,27 +18,160 @@ samples, guidance on mobile development, and a full API reference.
 
 ---
 
-## ⚙️ 환경 변수 설정
+# HeartyBot
 
-이 프로젝트는 OpenAI API를 사용합니다.  
-실행 전 [OpenAI API Keys](https://platform.openai.com/account/api-keys)에서 키를 발급받으세요.
-
-프로젝트 루트(`BackEnd/`)에 `.env.dev` 파일을 만들고 다음 내용을 작성합니다:
-
-
-⚠️ 주의:  
-- `.env.dev`는 **절대 GitHub에 올리지 마세요.** (`.gitignore`에 추가되어 있습니다)  
-- 각 사용자(심사자)는 **직접 API 키를 발급받아 설정**해야 합니다.  
+FastAPI + Flutter 기반 음성/텍스트 챗봇 프로젝트  
+(OpenAI API, Whisper, Firebase 연동)
 
 ---
 
-## 📦 설치 방법
+## 📂 프로젝트 구조
 
-### 1. Python 환경 준비
-Python 3.9 이상을 권장합니다.
+```
+HeartyBot/
+├─ BackEnd/        # FastAPI 서버 (Python)
+│  ├─ requirements.txt
+│  └─ main.py
+└─ FrontEnd/       # Flutter 앱
+   ├─ android/
+   ├─ ios/
+   ├─ web/
+   └─ ...
+```
+
+---
+
+## ⚙️ 사전 준비
+
+- Python 3.9 이상
+- Flutter SDK (stable)
+- Firebase 프로젝트
+  - Android: `android/app/google-services.json`
+  - iOS: `ios/Runner/GoogleService-Info.plist`
+  - Web: `web/index.html`에 Firebase SDK 추가
+- ffmpeg (Whisper 실행에 필요)
+
+---
+
+## 🔑 환경 변수
+
+프로젝트 루트 `BackEnd/.env.dev` 파일 생성:
+
+```env
+OPENAI_API_KEY=sk-xxxxxxx
+WHISPER_MODEL=base   # tiny/base/small/medium/large 중 선택
+```
+
+---
+
+## 📦 백엔드 설치 & 실행
 
 ```bash
 cd BackEnd
 python -m venv venv
 source venv/bin/activate   # (Windows: venv\Scripts\activate)
 pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+- API 문서 확인: http://localhost:8000/docs
+- 헬스체크: http://localhost:8000/health
+
+---
+
+## 📦 requirements.txt
+
+```txt
+# ───────── 기본 서버 ─────────
+fastapi
+uvicorn
+python-dotenv
+requests
+
+# ───────── AI/음성 ─────────
+openai
+gtts
+speechrecognition
+
+# ───────── Whisper ─────────
+openai-whisper
+torch>=2.0.0
+```
+
+---
+
+## 🎤 ffmpeg 설치 가이드
+
+### 🔹 Ubuntu / Debian (Linux)
+```bash
+sudo apt-get update
+sudo apt-get install ffmpeg
+```
+
+### 🔹 macOS (Homebrew)
+```bash
+brew install ffmpeg
+```
+
+### 🔹 Windows
+1. [FFmpeg Windows builds (gyan.dev)](https://www.gyan.dev/ffmpeg/builds/) 에서 **release full** ZIP 다운로드  
+2. 압축 해제 후 `bin/` 폴더 안의 `ffmpeg.exe` 확인  
+3. `bin` 경로를 **환경 변수 PATH**에 추가  
+   - 제어판 → 시스템 → 고급 시스템 설정 → 환경 변수 → Path  
+   - 예: `C:\ffmpeg\bin`
+4. 설치 확인:
+   ```powershell
+   ffmpeg -version
+   ```
+
+---
+
+## 📱 프론트엔드 실행 (Flutter)
+
+```bash
+cd FrontEnd
+flutter pub get
+
+# Android 에뮬레이터
+flutter run -d emulator-5554
+
+# iOS 시뮬레이터
+flutter run -d ios
+
+# Web
+flutter run -d chrome
+```
+
+---
+
+## 🚀 API 예시
+
+### 기본 라우트
+```bash
+GET / → {"message": "Hello from FastAPI chatbot!"}
+```
+
+### 에코 API (예시)
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class EchoIn(BaseModel):
+    msg: str
+
+@app.post("/echo")
+def echo(body: EchoIn):
+    return {"echo": body.msg}
+```
+
+---
+
+## ✅ 체크리스트
+
+- [ ] `.env.dev` 작성 (`OPENAI_API_KEY` 필수)  
+- [ ] ffmpeg 설치 완료  
+- [ ] Firebase 설정 파일(Android/iOS/Web) 추가  
+- [ ] `uvicorn main:app --reload` 정상 실행  
+- [ ] Flutter 앱에서 API 호출 확인  
