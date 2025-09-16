@@ -80,17 +80,29 @@ HeartyBot/
   - iOS: `FrontEnd/ios/Runner/GoogleService-Info.plist`
   - Web: `FrontEnd/web/index.html`에 Firebase SDK 추가
 - ffmpeg (Whisper 실행에 필요)
-
 ---
 
-## 🔑 환경 변수
+## 🔑 Environment Variables
 
-`BackEnd/.env.dev` 파일 생성:
+- 모든 환경 변수는 `secrets/.env` 파일에서 관리합니다.  
+- 이 `secrets` 폴더는 별도의 Private Repository(Submodule)로 관리되며, 프로젝트를 클론할 때 반드시 submodule을 초기화해야 합니다.
 
-```env
-OPENAI_API_KEY=sk-xxxxxxx
-WHISPER_MODEL=base   # tiny/base/small/medium/large 중 선택
-```
+### 코드에서 불러오기
+- **Python (BackEnd)**  
+  ```python
+  from dotenv import load_dotenv
+  import os
+
+  load_dotenv("secrets/.env")
+  api_key = os.getenv("OPENAI_API_KEY")
+
+- **Node.js (FrontEnd)**
+    ```js
+   import dotenv from "dotenv";
+   dotenv.config({ path: "secrets/.env" });
+
+   const apiKey = process.env.OPENAI_API_KEY;
+   ```
 
 ---
 
