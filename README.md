@@ -400,7 +400,9 @@ def echo(body: EchoIn):
 본 프로젝트는 아래 팀원들의 협력을 통해 개발되었습니다. 
 
 김건후	백엔드 개발, FastAPI 서버 구축	
+
 윤준식	프론트엔드 개발, Flutter UI/UX 구현	
+
 이상연	백엔드 개발, Whisper 기능 개발	
 
 
